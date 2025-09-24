@@ -1,5 +1,6 @@
 # scoresignal
 Fetch live fixtures & historical stats → Predict match outcomes → Curate smart tips → Deliver via Telegram.
+
 ScoreSignal is an end-to-end automation pipeline that combines football data science, machine learning, and LLM-enhanced analysis to generate actionable match predictions. It automatically delivers curated tip categories like Best Wins, Goals Galore, and Limited Goals straight to your Telegram bot.
 
 Key Features:
