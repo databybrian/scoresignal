@@ -8,12 +8,12 @@ Key Features:
 Live & Historical Data: Pulls fixtures, results, and stats from reliable football APIs.
 Hybrid Prediction Engine: Combines statistical models with LLM reasoning for nuanced insights.
 Smart Tip Curation: Automatically selects and labels predictions into intuitive categories:
-Best Wins – High-confidence home/away victories  
-Goals Galore – Matches likely to see 2+ goals  
-Limited Goals – Tight, low-scoring affairs (Under 2.5)  
+Best Wins – High-confidence home/away victories
+Goals Galore – Matches likely to see 2+ goals
+Limited Goals – Tight, low-scoring affairs (Under 2.5)
 Extensible for custom tip types
 Telegram Integration: Sends daily tip digests via a private bot.
-Fully Automated: Runs on schedule (GitHub Actions).
+Fully Automated: Runs on schedule (GitHub Actions)
 Configurable & Private: Your data, your rules—no public sharing.
 
 Technologies Used:
@@ -26,7 +26,7 @@ Infrastructure: Dockerready, environmentconfigurable (.env)
 Language: Python 3.10+
  
 
-Use Cases:
+Use Cases
 Get daily match previews with AI-generated insights—no manual research.
 Identify statistically sound opportunities across multiple tip categories.
 Power a Telegram channel, newsletter, or social bot with fresh football tips.
