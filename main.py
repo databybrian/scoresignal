@@ -363,7 +363,22 @@ def extract_best_tip_label(match_row, historical_df):
 last_tier = None
 
 def main():
-    global last_tier
+    # Ensure data directory exists
+    global last_tier  # ← Must be first line in function
+    
+    # Ensure data directory exists
+    DATA_DIR.mkdir(exist_ok=True)
+    
+    # Generate fixtures if missing
+    if not (DATA_DIR / "fixtures_data.csv").exists():
+        print("🔄 fixtures_data.csv not found - fetching live fixtures...")
+        try:
+            from src.fetch_fixtures_live import fetch_and_save_fixtures
+            fetch_and_save_fixtures()
+            print("✅ Fixtures fetched successfully")
+        except Exception as e:
+            print(f"❌ Failed to fetch fixtures: {e}")
+            return
 
     # Send header
     header = (

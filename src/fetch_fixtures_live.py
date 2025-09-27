@@ -4,10 +4,16 @@ import requests
 import json
 import pandas as pd
 from tqdm import tqdm
+import sys
+from pathlib import Path
 import warnings
 from typing import List, Tuple
+
+
 from data_utils import format_date_column
 from league_data import LEAGUE_PATHS 
+
+last_tier = None
 
 def fetch_fixtures(league_key: str, season: str = "2025-26") -> pd.DataFrame:
     """
@@ -63,18 +69,53 @@ def fetch_all_fixtures(season: str = "2025-26") -> pd.DataFrame:
             return pd.concat(all_fixtures, ignore_index=True)
     else:
         return pd.DataFrame()
-
-def save_fixtures_to_csv(filepath: str = "data/fixtures.csv", season: str = "2025-26"):
-    """Fetch all fixtures and save to CSV"""
-    print("🔄 Fetching fresh fixtures from openfootball...")
-    df = fetch_all_fixtures(season)
+    
+def fetch_and_save_fixtures(filepath: str = None, season: str = "2025-26"):
+    """
+    Fetch fixtures and save to specified path.
+    If no path given, saves to 'data/fixtures_data.csv'
+    """
+    from pathlib import Path
+    SCRIPT_DIR = Path(__file__).resolve().parent.parent
+    
+    if filepath is None:
+        filepath = SCRIPT_DIR / "data" / "fixtures_data.csv"
+    else:
+        filepath = Path(filepath)
+    
+    # Ensure data directory exists
+    filepath.parent.mkdir(exist_ok=True)
+    
+    # Fetch and save (with custom season)
+    df = fetch_all_fixtures(season=season)  # ← Pass season parameter
+    
+    # Format date if possible
     try:
+        from src.data_utils import format_date_column
         df = format_date_column(df)
     except (ImportError, AttributeError):
-        pass  # Continue without date formatting if function not available
+        pass
+    
+    # Ensure required columns exist
+    required_cols = ['home_team', 'away_team', 'date', 'time', 'league_name']
+    if not all(col in df.columns for col in required_cols):
+        raise ValueError(f"Fixtures missing required columns. Found: {list(df.columns)}")
+    
     df.to_csv(filepath, index=False, encoding='utf-8-sig')
     print(f"✅ Saved {len(df)} fixtures to {filepath}")
     return df
+
+# def save_fixtures_to_csv(filepath: str = "data/fixtures.csv", season: str = "2025-26"):
+#     """Fetch all fixtures and save to CSV"""
+#     print("🔄 Fetching fresh fixtures from openfootball...")
+#     df = fetch_all_fixtures(season)
+#     try:
+#         df = format_date_column(df)
+#     except (ImportError, AttributeError):
+#         pass  # Continue without date formatting if function not available
+#     df.to_csv(filepath, index=False, encoding='utf-8-sig')
+#     print(f"✅ Saved {len(df)} fixtures to {filepath}")
+#     return df
 
 # Optional: Global variable (use sparingly)
 # ALL_FIXTURES, FAILED_LEAGUES = fetch_all_fixtures("2025-26")
