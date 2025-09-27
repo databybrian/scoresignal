@@ -1,0 +1,24 @@
+﻿country,odds_league_code,fixtures_league_key,league_name,note
+Austria,,at.1,Austrian Bundesliga,odds data needs shaping
+Austria,,at.2,2. Liga,odds data needs shaping
+Belgium,B1,be.1,Belgian Pro League,
+Germany,D1,,,fixtures unavailable on openfootball
+Germany,D2,,,fixtures unavailable on openfootball
+Denmark,,de.1,,odds data needs shaping
+Denmark,,de.2,,odds data needs shaping
+England,E0,en.1,Premier League,
+England,E1,en.2,EFL Championship,
+England,E2,en.3,EFL League One,
+England,E3,en.4,EFL League Two,
+France,F1,fr.1,Ligue 1,
+France,F2,fr.2,Ligue 2,
+Greece,G1,gr.1,Super League Greece,
+Italy,I1,it.1,Serie A,
+Italy,I2,it.2,Serie B,
+Netherlands,N1,nl.1,Eredivisie,
+Portugal,P1,pt.1,Primeira Liga,
+Scotland,SC0,sco.1,Scottish Premiership,
+Scotland,SC1,,,fixtures unavailable on openfootball
+Spain,SP1,es.1,La Liga,
+Spain,SP2,es.2,La Liga 2,
+Turkey,T1,tr.1,Super Lig,
