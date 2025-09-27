@@ -1,10 +1,12 @@
 # main.py
 import sys
 from pathlib import Path
+SCRIPT_DIR = Path(__file__).resolve().parent
+SRC_DIR = SCRIPT_DIR / "src"
+sys.path.insert(0, str(SRC_DIR))
+sys.path.insert(0, str(SCRIPT_DIR))
 import time
 from datetime import datetime, timedelta, timezone
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR))
 
 import pandas as pd
 import numpy as np
@@ -374,7 +376,7 @@ def main():
     if not (DATA_DIR / "fixtures_data.csv").exists():
         print("🔄 fixtures_data.csv not found - fetching live fixtures...")
         try:
-            from src.fetch_fixtures_live import fetch_and_save_fixtures
+            from src.fetch_fixtures_live import fetch_and_save_fixtures  # ← Remove src. prefix
             fetch_and_save_fixtures()
             print("✅ Fixtures fetched successfully")
         except Exception as e:
