@@ -1,7 +1,6 @@
 # bot/time_utils.py
-import pytz
-
-from datetime import datetime, timedelta
+import time
+from datetime import datetime, time as dt_time, timedelta
 from zoneinfo import ZoneInfo
 
 NAIROBI_TZ = ZoneInfo("Africa/Nairobi")
@@ -15,7 +14,6 @@ def format_time(dt):
     """Format datetime for user-friendly output (with date)."""
     return dt.strftime("%Y-%m-%d %H:%M")
 
-
 def get_next_tips_time(now=None):
     """
     Get the next tier prediction time in Nairobi timezone.
@@ -26,22 +24,24 @@ def get_next_tips_time(now=None):
     """
     if now is None:
         now = get_now_nairobi()
+    
     today = now.date()
 
-    # Define tier start times
+    # Define tier start times using proper datetime construction
     tier_times = [
-        datetime.combine(today, time(7, 0), tzinfo=NAIROBI_TZ),
-        datetime.combine(today, time(12, 0), tzinfo=NAIROBI_TZ),
-        datetime.combine(today, time(16, 0), tzinfo=NAIROBI_TZ),
+        datetime(today.year, today.month, today.day, 7, 0, tzinfo=NAIROBI_TZ),
+        datetime(today.year, today.month, today.day, 12, 0, tzinfo=NAIROBI_TZ),
+        datetime(today.year, today.month, today.day, 16, 0, tzinfo=NAIROBI_TZ),
     ]
 
+    # Check for next tier time today
     for tier_start in tier_times:
         if now < tier_start:
             return tier_start
 
-    # If past Tier 3 → tomorrow 07:00
+    # If past all tiers today → tomorrow 07:00
     tomorrow = today + timedelta(days=1)
-    return datetime.combine(tomorrow, time(7, 0), tzinfo=NAIROBI_TZ)
+    return datetime(tomorrow.year, tomorrow.month, tomorrow.day, 7, 0, tzinfo=NAIROBI_TZ)
 
 def format_time(dt):
     """Pretty format Nairobi datetime for messages."""

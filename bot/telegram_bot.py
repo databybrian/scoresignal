@@ -13,41 +13,52 @@ session = requests.Session()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
-def send_telegram_message(message: str, chat_id: str = None) -> None:
+def send_telegram_message(message: str, chat_id: str = None):
     """
-    Send a Telegram message.
-    
-    If `chat_id` is provided, sends to that single chat.
-    Otherwise, broadcasts to all active chats.
+    Send message to specific chat ID or all active chats.
     """
     if not TELEGRAM_BOT_TOKEN:
         print("❌ TELEGRAM_BOT_TOKEN not configured")
         return
-
-    # Decide recipients
-    target_chats = [chat_id] if chat_id else get_active_chat_ids()
-
-    if not target_chats:
-        print("⚠️ No active chats to send to")
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    
+    # If specific chat_id provided, send only to that chat
+    if chat_id:
+        payload = {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }
+        try:
+            response = requests.post(url, json=payload, timeout=10)
+            if response.status_code == 200:
+                print(f"✅ Message sent to chat {chat_id}")
+            else:
+                print(f"❌ Failed to send to chat {chat_id}: {response.status_code}")
+        except Exception as e:
+            print(f"❌ Error sending to chat {chat_id}: {e}")
         return
-
-    for cid in target_chats:
+    
+    # Otherwise, send to all active chats (existing logic)
+    active_chats = get_active_chat_ids()
+    if not active_chats:
+        print("⚠️  No active chats to send to")
+        return
+    
+    for cid in active_chats:
         payload = {
             "chat_id": cid,
             "text": message,
             "parse_mode": "Markdown",
-            "disable_web_page_preview": True,
+            "disable_web_page_preview": True
         }
-
         try:
-            response = session.post(f"{API_URL}/sendMessage", json=payload, timeout=10)
-            data = response.json()
-
-            if response.status_code == 200 and data.get("ok"):
+            response = requests.post(url, json=payload, timeout=10)
+            if response.status_code == 200:
                 print(f"✅ Message sent to chat {cid}")
             else:
-                err_desc = data.get("description", "Unknown error")
-                print(f"❌ Failed to send to chat {cid}: {err_desc}")
-
-        except requests.RequestException as e:
-            print(f"❌ Network error sending to chat {cid}: {e}")
+                print(f"❌ Failed to send to chat {cid}: {response.status_code}")
+        except Exception as e:
+            print(f"❌ Error sending to chat {cid}: {e}")
