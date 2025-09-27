@@ -10,8 +10,8 @@ import warnings
 from typing import List, Tuple
 
 
-from data_utils import format_date_column
-from league_data import LEAGUE_PATHS 
+from src.data_utils import format_date_column
+from src.league_data import LEAGUE_PATHS 
 
 last_tier = None
 
