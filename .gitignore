@@ -11,13 +11,14 @@ env/
 testenv/
 .venv/
 
+
 # Python cache
 __pycache__/
 *.py[cod]
 *.so
 *.pyc
 *.pyo
-*.pyd
+*.pyd   
 
 # Editor / OS
 .vscode/
@@ -46,7 +47,8 @@ comined_historical_data.csv
 ngrok_recovery_codes.txt
 /data/active_chats.json
 
-
+.ipynb_checkpoints/
+*.ipynb
 
 
 
