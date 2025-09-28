@@ -89,7 +89,7 @@ def process_raw_to_cleaned():
         raise FileNotFoundError(f"Raw historical data not found: {RAW_FILE}")
     
     # Load dtype mapping
-    DTYPE_FILE = PROJECT_ROOT / "data_type_mapping.csv"
+    DTYPE_FILE = PROJECT_ROOT / "raw_data" / "data_type_mapping.csv"
     dtype_df = pd.read_csv(DTYPE_FILE)
     DTYPE_MAPPING = dict(zip(dtype_df['column_name'], dtype_df['data_type']))
     

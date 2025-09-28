@@ -1,16 +1,22 @@
+# scripts/team_mapping_resolving.py
+
 import pandas as pd
 import sys
 from pathlib import Path
-SCRIPT_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(SCRIPT_DIR))
-from src.data_utils import essential_columns
-from bot.config import SCRIPT_DIR
 
-HISTORICAL_FILE = SCRIPT_DIR / "combined_historical_data.csv"
-NEW_HISTORICAL_FILE = SCRIPT_DIR / "cleaned_historical_data.csv"
-FIXTURES_FILE = SCRIPT_DIR / "fixtures_data.csv"
-MAPPING_FILE = SCRIPT_DIR / "team_mapping.csv"
-OUTPUT_FILE = SCRIPT_DIR / "historical_data_clean.csv"
+# Get project root (parent of scripts/)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))  # Add src for essential_columns
+
+from src.data_utils import essential_columns
+
+# Use PROJECT_ROOT for all file paths (no bot.config import needed)
+HISTORICAL_FILE = PROJECT_ROOT / "combined_historical_data.csv"
+NEW_HISTORICAL_FILE = PROJECT_ROOT / "data" / "cleaned_historical_data.csv"
+FIXTURES_FILE = PROJECT_ROOT / "data" / "fixtures_data.csv"
+MAPPING_FILE = PROJECT_ROOT / "raw_data" / "team_mapping.csv"
+OUTPUT_FILE = PROJECT_ROOT / "data" / "historical_data_clean.csv"
 
 def resolve_team_name(
     league_code: str, 
@@ -102,7 +108,7 @@ def create_production_historical_file(historical_data_clean: pd.DataFrame, outpu
     Create lean production-ready historical data file.
     """
     # Select only essential columns
-    essential_cols = essential_columns        # Already defined in download_historical_data.py
+    essential_cols = essential_columns
     
     # Use CLEANED names as the new standard
     production_df = historical_data_clean.copy()

@@ -17,9 +17,9 @@ from src.data_utils import format_date_column
 
 # Configuration - use correct paths
 LEAGUE_CONFIG_FILE = PROJECT_ROOT / "raw_data" / "footballdata_league_list.csv"
-HISTORICAL_FILE = PROJECT_ROOT / "raw_data" / "combined_historical_data.csv"
+HISTORICAL_FILE = PROJECT_ROOT / "combined_historical_data.csv"  # ← MOVED TO PROJECT ROOT
 CURRENT_SEASON = "2526"
-BASE_URL = "https://www.football-data.co.uk"  # Fixed extra spaces
+BASE_URL = "https://www.football-data.co.uk"  # ← REMOVED EXTRA SPACES
 
 def load_league_config(filepath: str = None) -> pd.DataFrame:
     """Load league configuration"""
