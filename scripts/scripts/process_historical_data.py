@@ -8,9 +8,9 @@ import sys
 # Get project root (parent of scripts/)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "src"))  # ← ADD THIS LINE!
+sys.path.insert(0, str(PROJECT_ROOT / "src")) 
 
-from data_utils import format_date_column  # ← Remove "src." prefix
+from src.data_utils import format_date_column
 
 # Load dtype mapping - use PROJECT_ROOT instead of SCRIPT_DIR
 DTYPE_FILE = PROJECT_ROOT / "data_type_mapping.csv"
