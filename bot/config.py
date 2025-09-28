@@ -22,7 +22,6 @@ HEADERS = {
 current_season = "2025-26"
 TODAY = str(date.today())
 JSON_STORAGE_FILE = "bot_messages.json"
-SCRIPT_DIR = Path(__file__).parent
 
 # Logging (standard Python logging format)
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"

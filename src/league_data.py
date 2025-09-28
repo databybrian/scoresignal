@@ -3,9 +3,9 @@ import requests
 import os
 import pandas as pd
 from typing import Dict, Any
-from config import TODAY, HEADERS
 import logging
-from config import current_season
+from bot.config import TODAY, HEADERS
+from bot.config import current_season
 
 logger = logging.getLogger(__name__)
 # League key to name mapping dictionary
