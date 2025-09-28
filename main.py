@@ -78,8 +78,36 @@ if MODELS is None:
     print("🆘 Continuing without models - predictions will be disabled")
     MODELS = {}
 
+def ensure_historical_data_exists():
+    """Ensure cleaned historical data exists (one-time setup)"""
+    CLEANED_FILE = DATA_DIR / "cleaned_historical_data.csv"
+    
+    if CLEANED_FILE.exists():
+        print("✅ Cleaned historical data already exists")
+        return True
+    
+    print("🔄 Setting up historical data (one-time process)...")
+    
+    try:
+        # Step 1: Download raw data
+        print("📥 Downloading raw historical data...")
+        from scripts.download_historical_data import download_and_combine_all_historical_data
+        download_and_combine_all_historical_data()
+        
+        # Step 2: Process into cleaned format
+        print("🧹 Processing raw data into cleaned format...")
+        from scripts.process_historical_data import process_raw_to_cleaned
+        process_raw_to_cleaned()
+        
+        print("✅ Historical data setup complete!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to setup historical data: {e}")
+        return False
+
 def load_historical_data():
-    """Load clean historical data for feature computation."""
+    """Load clean historical data, generate if missing."""
     try:
         df = pd.read_csv(
             DATA_DIR / "cleaned_historical_data.csv",
@@ -89,9 +117,17 @@ def load_historical_data():
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         print(f"✅ Loaded historical data: {len(df)} matches")
         return df
-    except Exception as e:
-        print(f"❌ Failed to load historical data: {e}")
-        return pd.DataFrame()
+    except FileNotFoundError:
+        print("🔄 Historical data not found - generating from raw data...")
+        try:
+            from scripts.load_clean_historical_data import load_and_clean_historical
+            df = load_and_clean_historical()
+            df.to_csv(DATA_DIR / "cleaned_historical_data.csv", index=False)
+            print(f"✅ Generated historical data: {len(df)} matches")
+            return df
+        except Exception as e:
+            print(f"❌ Failed to generate historical data: {e}")
+            return pd.DataFrame()
 
 def load_todays_fixtures():
     """Load today's fixtures with error handling."""
@@ -454,6 +490,9 @@ def main():
     DATA_DIR.mkdir(exist_ok=True)
     MODEL_DIR.mkdir(exist_ok=True)
     
+    # Ensure historical data is available (one-time setup)
+    ensure_historical_data_exists()
+    
     # Safely fetch fixtures
     if not safe_fetch_fixtures():
         print("❌ Could not fetch fixtures - exiting")
@@ -474,11 +513,12 @@ def main():
             "🙏 Thank you for your support. *MPESA TILL:* `9105695`\n"
             "*scoresignal* • _Data-driven football tips_ • *Bet responsibly*"
             )
+        send_telegram_message(header)
 
     else:
         send_telegram_message("🔧 System starting up - models loading...")
     
-    # Load data
+    # Load data (now guaranteed to have cleaned_historical_data.csv)
     historical_df = load_historical_data()
     fixtures = load_todays_fixtures()
 
