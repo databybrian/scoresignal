@@ -1,18 +1,18 @@
 # scripts/process_historical_data.py
+
 import pandas as pd
 import numpy as np
 from pathlib import Path
 import sys
 
-# Add project root to path
+# Get project root (parent of scripts/)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from bot.config import SCRIPT_DIR
 from src.data_utils import format_date_column
 
-# Load dtype mapping
-DTYPE_FILE = SCRIPT_DIR / "data_type_mapping.csv"
+# Load dtype mapping - use PROJECT_ROOT instead of SCRIPT_DIR
+DTYPE_FILE = PROJECT_ROOT / "data_type_mapping.csv"
 dtype_df = pd.read_csv(DTYPE_FILE)
 DTYPE_MAPPING = dict(zip(dtype_df['column_name'], dtype_df['data_type']))
 
@@ -35,8 +35,8 @@ def process_raw_to_cleaned():
     """
     Process raw combined_historical_data.csv into cleaned_historical_data.csv
     """
-    RAW_FILE = SCRIPT_DIR / "combined_historical_data.csv"
-    CLEANED_FILE = SCRIPT_DIR / "data" / "cleaned_historical_data.csv"
+    RAW_FILE = PROJECT_ROOT / "combined_historical_data.csv"
+    CLEANED_FILE = PROJECT_ROOT / "data" / "cleaned_historical_data.csv"
     
     if not RAW_FILE.exists():
         raise FileNotFoundError(f"Raw historical data not found: {RAW_FILE}")

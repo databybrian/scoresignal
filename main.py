@@ -7,6 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+
 import time
 import pandas as pd
 import numpy as np
@@ -107,7 +108,7 @@ def ensure_historical_data_exists():
         return False
 
 def load_historical_data():
-    """Load clean historical data, generate if missing."""
+    """Load clean historical data for feature computation."""
     try:
         df = pd.read_csv(
             DATA_DIR / "cleaned_historical_data.csv",
@@ -117,17 +118,9 @@ def load_historical_data():
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         print(f"✅ Loaded historical data: {len(df)} matches")
         return df
-    except FileNotFoundError:
-        print("🔄 Historical data not found - generating from raw data...")
-        try:
-            from scripts.load_clean_historical_data import load_and_clean_historical
-            df = load_and_clean_historical()
-            df.to_csv(DATA_DIR / "cleaned_historical_data.csv", index=False)
-            print(f"✅ Generated historical data: {len(df)} matches")
-            return df
-        except Exception as e:
-            print(f"❌ Failed to generate historical data: {e}")
-            return pd.DataFrame()
+    except Exception as e:
+        print(f"❌ Failed to load historical data: {e}")
+        return pd.DataFrame()  # Return empty, don't try to generate
 
 def load_todays_fixtures():
     """Load today's fixtures with error handling."""
@@ -491,7 +484,7 @@ def main():
     MODEL_DIR.mkdir(exist_ok=True)
     
     # Ensure historical data is available (one-time setup)
-    ensure_historical_data_exists()
+    historical_ready = ensure_historical_data_exists()
     
     # Safely fetch fixtures
     if not safe_fetch_fixtures():
@@ -512,14 +505,21 @@ def main():
             "`" + ("─" * 30) + "`\n\n"
             "🙏 Thank you for your support. *MPESA TILL:* `9105695`\n"
             "*scoresignal* • _Data-driven football tips_ • *Bet responsibly*"
-            )
+        )
         send_telegram_message(header)
-
     else:
         send_telegram_message("🔧 System starting up - models loading...")
     
-    # Load data (now guaranteed to have cleaned_historical_data.csv)
-    historical_df = load_historical_data()
+    # Load data - handle case where historical data setup failed
+    if historical_ready:
+        historical_df = load_historical_data()
+        if historical_df.empty:
+            print("⚠️  Historical data loaded but empty - predictions may be limited")
+            historical_df = pd.DataFrame()  # Ensure it's a valid DataFrame
+    else:
+        print("⚠️  Historical data not available - using empty DataFrame for predictions")
+        historical_df = pd.DataFrame()
+    
     fixtures = load_todays_fixtures()
 
     if fixtures.empty:

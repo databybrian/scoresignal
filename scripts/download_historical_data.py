@@ -1,32 +1,31 @@
+# scripts/download_historical_data.py
+
 import pandas as pd
 import requests
 from pathlib import Path
 import sys
 from io import StringIO
-SCRIPT_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(SCRIPT_DIR))
 
-from src.data_utils import format_date_column
-from src.data_utils import essential_columns
-from bot.config import SCRIPT_DIR
+# Get project root (parent of scripts/)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
-
+from src.data_utils import format_date_column, essential_columns
+from bot.config import current_season  # Only import what you need
 
 # Configuration
-BASE_URL = "https://www.football-data.co.uk/mmz4281"
+BASE_URL = "https://www.football-data.co.uk/mmz4281"  # Fixed extra spaces
 
-CURRENT_SEASON = "2526"
-current_start_year = int(CURRENT_SEASON[:2])  # 25
-# Generate 16 seasons total: 15 historical + 1 current
-# So we need seasons from (current_start_year - 15) to current_start_year
+# Use current_season from config
+current_start_year = int(current_season[:2])  # 25
 start_year = current_start_year - 15  # 25 - 15 = 10 (2010-11)
 end_year = current_start_year         # 25 (2025-26)
 
 SEASONS = [f"{year:02d}{(year+1):02d}" for year in range(start_year, end_year + 1)]
 
-# Load league mapping from CSV
-LEAGUE_CONFIG_FILE = SCRIPT_DIR / "footballdata_league_list.csv"
-OUTPUT_FILE = SCRIPT_DIR / "combined_historical_data.csv"
+# Load league mapping from CSV - use correct path
+LEAGUE_CONFIG_FILE = PROJECT_ROOT / "raw_data" / "footballdata_league_list.csv"
+OUTPUT_FILE = PROJECT_ROOT / "combined_historical_data.csv"
 
 def load_league_config(config_file: Path) -> pd.DataFrame:
     """Load league configuration from CSV"""
@@ -129,8 +128,11 @@ def download_and_combine_all_historical_data():
         combined_df = format_date_column(combined_df)
     except (ImportError, AttributeError):
         pass  # Continue without date formatting if function not available
+    
     # Reorder columns to put metadata first and keep only essential columns
-    combined_df = combined_df[essential_columns]
+    available_columns = [col for col in essential_columns if col in combined_df.columns]
+    combined_df = combined_df[available_columns]
+    
     metadata_cols = ['country', 'league_name', 'league_code', 'season', 'Date', 'HomeTeam', 'AwayTeam']
     other_cols = [col for col in combined_df.columns if col not in metadata_cols]
     combined_df = combined_df[metadata_cols + other_cols]
