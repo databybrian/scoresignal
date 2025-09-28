@@ -1,4 +1,5 @@
 # main.py
+import argparse
 import sys
 from pathlib import Path
 
@@ -535,6 +536,13 @@ def safe_fetch_fixtures():
 last_tier = None
 
 def main():
+    # Parse command line arguments for scheduled execution
+    import argparse
+    parser = argparse.ArgumentParser(description='Run prediction bot on schedule')
+    parser.add_argument('--schedule', choices=['tier1', 'tier2', 'tier3'], 
+                       help='Force run specific tier (for cron jobs)')
+    args = parser.parse_args()
+    
     global last_tier
     
     # Ensure directories exist
@@ -601,42 +609,66 @@ def main():
     ]
 
     all_sent_tips = []
-    now = get_now_nairobi()
-    current_hour = now.hour
-    print(f"🕒 Current Nairobi time: {now.strftime('%Y-%m-%d %H:%M')}")
-
-    # Tier logic (using Nairobi time)
-    if 8 <= current_hour <= 10:  # Tier 1
-        tier_name = "Tier 1 (No-time)"
-        print("🕐 Running Tier 1: No-time matches")
-        all_sent_tips.extend(run_prediction_tier(tier_name, no_time, historical_df, collect_for_summary=True))
-        last_tier = tier_name
-
-    elif 12 <= current_hour <= 14:  # Tier 2 (shifted to 12–14 Nairobi)
-        tier_name = "Tier 2 (Daytime)"
-        print("🕐 Running Tier 2: Daytime matches (12–18)")
-        all_sent_tips.extend(run_prediction_tier(tier_name, daytime, historical_df, collect_for_summary=True))
-        last_tier = tier_name
-
-    elif 16 <= current_hour <= 18:  # Tier 3
-        tier_name = "Tier 3 (Evening)"
-        print("🕐 Running Tier 3: Evening matches (19+)")
-        all_sent_tips.extend(run_prediction_tier(tier_name, evening, historical_df, collect_for_summary=True))
-        last_tier = tier_name
-
+    
+    # Determine which tier to run (command-line argument takes priority)
+    if args.schedule:
+        # Forced execution via cron job
+        if args.schedule == 'tier1':
+            tier_name = "Tier 1 (No-time)"
+            print("🕐 Running Tier 1: No-time matches (forced by schedule)")
+            all_sent_tips.extend(run_prediction_tier(tier_name, no_time, historical_df, collect_for_summary=True))
+            last_tier = tier_name
+            
+        elif args.schedule == 'tier2':
+            tier_name = "Tier 2 (Daytime)"
+            print("🕐 Running Tier 2: Daytime matches (forced by schedule)")
+            all_sent_tips.extend(run_prediction_tier(tier_name, daytime, historical_df, collect_for_summary=True))
+            last_tier = tier_name
+            
+        elif args.schedule == 'tier3':
+            tier_name = "Tier 3 (Evening)"
+            print("🕐 Running Tier 3: Evening matches (forced by schedule)")
+            all_sent_tips.extend(run_prediction_tier(tier_name, evening, historical_df, collect_for_summary=True))
+            last_tier = tier_name
+            
     else:
-        print(f"🕒 Outside prediction windows (current hour: {current_hour})")
+        # Original time-based logic (manual execution)
+        now = get_now_nairobi()
+        current_hour = now.hour
+        print(f"🕒 Current Nairobi time: {now.strftime('%Y-%m-%d %H:%M')}")
 
-        # Only send "No tips" once per tier
-        if last_tier != "Outside":
-            next_time = get_next_tips_time(now)
-            msg = (
-                f"📭 No high-confidence tips to summarize.\n\n"
-                f"⏭️ Next predictions will be sent at: {format_time(next_time)} Nairobi time"
-            )
-            send_telegram_message(msg)
-            print(msg)
-            last_tier = "Outside"
+        # Tier logic (using Nairobi time)
+        if 8 <= current_hour <= 10:  # Tier 1
+            tier_name = "Tier 1 (No-time)"
+            print("🕐 Running Tier 1: No-time matches")
+            all_sent_tips.extend(run_prediction_tier(tier_name, no_time, historical_df, collect_for_summary=True))
+            last_tier = tier_name
+
+        elif 12 <= current_hour <= 14:  # Tier 2 (shifted to 12–14 Nairobi)
+            tier_name = "Tier 2 (Daytime)"
+            print("🕐 Running Tier 2: Daytime matches (12–18)")
+            all_sent_tips.extend(run_prediction_tier(tier_name, daytime, historical_df, collect_for_summary=True))
+            last_tier = tier_name
+
+        elif 16 <= current_hour <= 18:  # Tier 3
+            tier_name = "Tier 3 (Evening)"
+            print("🕐 Running Tier 3: Evening matches (19+)")
+            all_sent_tips.extend(run_prediction_tier(tier_name, evening, historical_df, collect_for_summary=True))
+            last_tier = tier_name
+
+        else:
+            print(f"🕒 Outside prediction windows (current hour: {current_hour})")
+
+            # Only send "No tips" once per tier
+            if last_tier != "Outside":
+                next_time = get_next_tips_time(now)
+                msg = (
+                    f"📭 No high-confidence tips to summarize.\n\n"
+                    f"⏭️ Next predictions will be sent at: {format_time(next_time)} Nairobi time"
+                )
+                send_telegram_message(msg)
+                print(msg)
+                last_tier = "Outside"
 
     # Generate and send LLM summary if tips exist
     if all_sent_tips:
