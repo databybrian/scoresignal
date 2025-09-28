@@ -79,6 +79,63 @@ if MODELS is None:
     print("🆘 Continuing without models - predictions will be disabled")
     MODELS = {}
 
+# In main.py - add this function
+def process_raw_to_cleaned():
+    """Process raw combined_historical_data.csv into cleaned_historical_data.csv"""
+    RAW_FILE = PROJECT_ROOT / "combined_historical_data.csv"
+    CLEANED_FILE = DATA_DIR / "cleaned_historical_data.csv"
+    
+    if not RAW_FILE.exists():
+        raise FileNotFoundError(f"Raw historical data not found: {RAW_FILE}")
+    
+    # Load dtype mapping
+    DTYPE_FILE = PROJECT_ROOT / "data_type_mapping.csv"
+    dtype_df = pd.read_csv(DTYPE_FILE)
+    DTYPE_MAPPING = dict(zip(dtype_df['column_name'], dtype_df['data_type']))
+    
+    def clean_numeric_string(value):
+        if isinstance(value, str):
+            value = value.strip()
+            if value in ['', '#', 'NA', 'N/A', 'NULL', 'NaN', 'nan']:
+                return np.nan
+            cleaned = ''.join(char for char in value if char.isdigit() or char in '.-')
+            return cleaned if cleaned else np.nan
+        return value
+
+    numeric_columns = [col for col, dtype in DTYPE_MAPPING.items() 
+                       if dtype in ['float32', 'float64', 'int8', 'int16', 'int32', 'int64']]
+    converters = {col: clean_numeric_string for col in numeric_columns}
+    
+    print(f"📥 Loading raw historical data from {RAW_FILE}")
+    df = pd.read_csv(
+        RAW_FILE,
+        low_memory=False,
+        dtype=DTYPE_MAPPING,
+        converters=converters,
+        na_values=['', '#', 'NA', 'N/A', 'NULL', 'NaN', 'nan']
+    )
+    
+    print(f"📊 Loaded {len(df)} raw matches")
+    
+    # Apply date formatting
+    try:
+        from src.data_utils import format_date_column
+        df = format_date_column(df)
+    except Exception as e:
+        print(f"⚠️  Date formatting warning: {e}")
+    
+    # Sort by date
+    df = df.sort_values('Date', ignore_index=True)
+    
+    # Ensure data directory exists
+    CLEANED_FILE.parent.mkdir(exist_ok=True)
+    
+    # Save cleaned version
+    df.to_csv(CLEANED_FILE, index=False, encoding='utf-8')
+    print(f"✅ Saved cleaned historical data to {CLEANED_FILE}")
+    return df
+
+# Update your ensure_historical_data_exists() function
 def ensure_historical_data_exists():
     """Ensure cleaned historical data exists (one-time setup)"""
     CLEANED_FILE = DATA_DIR / "cleaned_historical_data.csv"
@@ -95,16 +152,17 @@ def ensure_historical_data_exists():
         from scripts.download_historical_data import download_and_combine_all_historical_data
         download_and_combine_all_historical_data()
         
-        # Step 2: Process into cleaned format
+        # Step 2: Process into cleaned format (now local function)
         print("🧹 Processing raw data into cleaned format...")
-        from scripts.process_historical_data import process_raw_to_cleaned
-        process_raw_to_cleaned()
+        process_raw_to_cleaned()  # Call local function
         
         print("✅ Historical data setup complete!")
         return True
         
     except Exception as e:
         print(f"❌ Failed to setup historical data: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def load_historical_data():
