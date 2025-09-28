@@ -1,4 +1,5 @@
-# Secrets
+# Environment files
+.env
 .env
 .env.*
 data/active_chats.json
@@ -40,15 +41,19 @@ dist/
 *.egg-info/
 
 # Data files (optional — if you don't want to commit Excel/CSV)
-# *.xlsx
-#*.csv
-fixtures_data.csv
-combined_historical_data.csv
 ngrok_recovery_codes.txt
+data/*.csv
+raw_data/combined_historical_data.csv
 /data/active_chats.json
+data/cleaned_historical_data.csv
+data/fixtures_data.csv
 
-.ipynb_checkpoints/
+# Jupyter notebooks (optional - keep if they're documentation)
 *.ipynb
+.ipynb_checkpoints/
+
+# Test files
+test_*.py
 
 
 

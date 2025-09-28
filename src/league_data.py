@@ -50,11 +50,10 @@ def load_league_names(filepath: str | None = None) -> Dict[str, str]:
     Expected columns: 'fixtures_league_key', 'odds_league_code', 'league_name'
     Only includes rows where both fixtures_league_key and odds_league_code are non-empty.
     """
-    # If no filepath provided, use the CSV in the same directory as this script
     if filepath is None:
-        # Get the directory where league_data.py is located
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        filepath = os.path.join(script_dir, "footballdata_league_list.csv")
+        # Get the project root (parent of src/) to access raw_data/
+        project_root = Path(__file__).resolve().parent.parent
+        filepath = project_root / "raw_data" / "footballdata_league_list.csv"
     
     try:
         df = pd.read_csv(filepath)
