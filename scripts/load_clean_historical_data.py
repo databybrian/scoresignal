@@ -8,7 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Load dtype mapping using PROJECT_ROOT
-DTYPE_FILE = PROJECT_ROOT / "data_type_mapping.csv"
+DTYPE_FILE = PROJECT_ROOT / "raw_data" / "data_type_mapping.csv"
 dtype_df = pd.read_csv(DTYPE_FILE)
 DTYPE_MAPPING = dict(zip(dtype_df['column_name'], dtype_df['data_type']))
 
