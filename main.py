@@ -420,7 +420,7 @@ def run_prediction_tier(tier_name, fixtures_subset, historical_df, collect_for_s
     return sent_tips
 
 def safe_fetch_fixtures():
-    """Safely fetch fixtures with multiple fallback strategies."""
+    """Safely fetch fixtures with proper imports."""
     fixtures_file = DATA_DIR / "fixtures_data.csv"
     
     if fixtures_file.exists():
@@ -429,30 +429,21 @@ def safe_fetch_fixtures():
         
     print("🔄 fixtures_data.csv not found - fetching live fixtures...")
     
-    # Try multiple import strategies
-    import_strategies = [
-        lambda: __import__('src.fetch_fixtures_live', fromlist=['fetch_and_save_fixtures']).fetch_and_save_fixtures,
-        lambda: __import__('fetch_fixtures_live', fromlist=['fetch_and_save_fixtures']).fetch_and_save_fixtures,
-    ]
-    
-    for i, strategy in enumerate(import_strategies):
-        try:
-            fetch_function = strategy()
-            fetch_function(str(fixtures_file))
-            print("✅ Fixtures fetched successfully")
-            return True
-        except Exception as e:
-            print(f"❌ Strategy {i+1} failed: {e}")
-            continue
-    
-    # Final fallback: create empty fixtures file
-    print("🆘 All import strategies failed - creating empty fixtures file")
-    empty_df = pd.DataFrame(columns=[
-        'round', 'date', 'time', 'home_team', 'away_team',
-        'home_score', 'away_score', 'league_key', 'league_name', 'season'
-    ])
-    empty_df.to_csv(fixtures_file, index=False)
-    return False
+    try:
+        # Use normal import (your path setup makes this work)
+        from src.fetch_fixtures_live import fetch_and_save_fixtures
+        fetch_and_save_fixtures(str(fixtures_file))
+        print("✅ Fixtures fetched successfully")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to fetch fixtures: {e}")
+        # Create empty fixtures file as fallback
+        empty_df = pd.DataFrame(columns=[
+            'round', 'date', 'time', 'home_team', 'away_team',
+            'home_score', 'away_score', 'league_key', 'league_name', 'season'
+        ])
+        empty_df.to_csv(fixtures_file, index=False)
+        return False
 
 last_tier = None
 
