@@ -54,7 +54,7 @@ def load_league_names(filepath: str | None = None) -> Dict[str, str]:
     if filepath is None:
         # Get the project root (parent of src/) to access raw_data/
         project_root = Path(__file__).resolve().parent.parent
-        filepath = project_root / "raw_data" / "footballdata_league_list.csv"
+        filepath =  str(project_root / "raw_data" / "footballdata_league_list.csv")
     
     try:
         df = pd.read_csv(filepath)

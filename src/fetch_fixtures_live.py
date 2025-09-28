@@ -8,6 +8,7 @@ import requests
 import json
 import pandas as pd
 from tqdm import tqdm
+from typing import Optional
 
 from .data_utils import format_date_column
 from .league_data import LEAGUE_PATHS 
@@ -69,7 +70,7 @@ def fetch_all_fixtures(season: str = "2025-26") -> pd.DataFrame:
     else:
         return pd.DataFrame()
     
-def fetch_and_save_fixtures(filepath: str = None, season: str = "2025-26"):
+def fetch_and_save_fixtures(filepath: Optional[str] = None, season: str = "2025-26"):
     """
     Fetch fixtures and save to specified path.
     If no path given, saves to 'data/fixtures_data.csv'
@@ -86,7 +87,7 @@ def fetch_and_save_fixtures(filepath: str = None, season: str = "2025-26"):
     filepath.parent.mkdir(exist_ok=True)
     
     # Fetch and save (with custom season)
-    df = fetch_all_fixtures(season=season)  # ← Pass season parameter
+    df = fetch_all_fixtures(season=season)
     
     # Format date if possible
     try:
@@ -95,10 +96,26 @@ def fetch_and_save_fixtures(filepath: str = None, season: str = "2025-26"):
     except (ImportError, AttributeError):
         pass
     
-    # Ensure required columns exist
+    # Case-insensitive required columns check
     required_cols = ['home_team', 'away_team', 'date', 'time', 'league_name']
-    if not all(col in df.columns for col in required_cols):
-        raise ValueError(f"Fixtures missing required columns. Found: {list(df.columns)}")
+    df_cols_lower = {col.lower(): col for col in df.columns}  # Map lowercase to actual name
+    
+    missing_cols = []
+    for req_col in required_cols:
+        if req_col.lower() not in df_cols_lower:
+            missing_cols.append(req_col)
+    
+    if missing_cols:
+        raise ValueError(
+            f"Fixtures missing required columns: {missing_cols}. "
+            f"Available columns: {list(df.columns)}"
+        )
+    
+    # Optional: Normalize column names to lowercase for consistency
+    # (Uncomment if you want consistent lowercase columns in output)
+    # col_mapping = {actual: req for req in required_cols 
+    #               for actual in [df_cols_lower.get(req.lower(), req)]}
+    # df = df.rename(columns=col_mapping)
     
     df.to_csv(filepath, index=False, encoding='utf-8-sig')
     print(f"✅ Saved {len(df)} fixtures to {filepath}")
