@@ -1,37 +1,32 @@
+# load_clean_historical_data.py
+
 import pandas as pd
 import numpy as np
-import sys
 from pathlib import Path
-SCRIPT_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(SCRIPT_DIR))
 
-from bot.config import SCRIPT_DIR
+# Get project root (parent of current file's directory)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-DTYPE_FILE = SCRIPT_DIR / "data_type_mapping.csv"
+# Load dtype mapping using PROJECT_ROOT
+DTYPE_FILE = PROJECT_ROOT / "data_type_mapping.csv"
 dtype_df = pd.read_csv(DTYPE_FILE)
 DTYPE_MAPPING = dict(zip(dtype_df['column_name'], dtype_df['data_type']))
-# Load data with the mapping
 
 def clean_numeric_string(value):
     """Convert problematic strings to NaN for numeric columns"""
     if isinstance(value, str):
-        # Remove common non-numeric characters and handle empty values
         value = value.strip()
         if value in ['', '#', 'NA', 'N/A', 'NULL', 'NaN', 'nan']:
             return np.nan
-        # Remove any remaining non-numeric characters except decimal point and negative sign
         cleaned = ''.join(char for char in value if char.isdigit() or char in '.-')
         return cleaned if cleaned else np.nan
     return value
 
-# Identify which columns are numeric in your DTYPE_MAPPING
+# Identify numeric columns
 numeric_columns = [col for col, dtype in DTYPE_MAPPING.items() 
                    if dtype in ['float32', 'float64', 'int8', 'int16', 'int32', 'int64']]
-
-# Create converters dictionary for numeric columns only
 converters = {col: clean_numeric_string for col in numeric_columns}
 
-# data_loader.py
 def load_clean_historical_data(cache=True, file_path="cleaned_historical_data.csv"):
     """
     Efficiently load, clean, and cache historical football data.
@@ -65,14 +60,6 @@ def load_clean_historical_data(cache=True, file_path="cleaned_historical_data.cs
     except Exception as e:
         print(f"Error loading data from {file_path}: {e}")
         raise
-    
-    # Final processing
-    df = df.sort_values('Date', ignore_index=True)
-    
-    # Cache with copy to avoid external modifications affecting cache
-    if cache:
-        setattr(load_clean_historical_data, cache_attr, df.copy())
-    
-    return df
 
-modelling_df = load_clean_historical_data()
+# Remove the automatic execution line - let callers decide when to load
+# modelling_df = load_clean_historical_data()  # ← DELETED
