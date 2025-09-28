@@ -43,7 +43,7 @@ dist/
 # *.xlsx
 #*.csv
 fixtures_data.csv
-comined_historical_data.csv
+combined_historical_data.csv
 ngrok_recovery_codes.txt
 /data/active_chats.json
 

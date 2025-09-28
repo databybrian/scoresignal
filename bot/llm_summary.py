@@ -83,7 +83,7 @@ def generate_daily_summary(tips_data: List[Dict]) -> str:
         print(f"❌ LLM summary error: {e}")
         return "Unable to generate summary. Check API key and try again."
 
-def create_summary_message(summary_text: str) -> str:
+def create_summary_message(summary_text:str) -> str:
     """Format the LLM summary for Telegram with clean separators."""
     # Clean up any duplicate headers that might come from LLM
     clean_summary = summary_text.strip()

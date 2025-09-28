@@ -1,6 +1,12 @@
 # main.py
 import sys
 from pathlib import Path
+
+# Add project root to Python path FIRST
+PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
 import time
 import pandas as pd
 import numpy as np
@@ -8,13 +14,12 @@ import pytz
 from datetime import datetime, timedelta
 import joblib
 
-# Add project root to Python path FIRST
-PROJECT_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
+print(f"PROJECT_ROOT: {PROJECT_ROOT}")
+print(f"src path: {PROJECT_ROOT / 'src'}")
+print("Current Python path:")
+for i, path in enumerate(sys.path):
+    print(f"  {i}: {path}")
 
-print(f"🔍 Project root: {PROJECT_ROOT}")
-print(f"🔍 Python path: {sys.path}")
 
 # Now import other modules with error handling
 try:
@@ -255,27 +260,28 @@ def build_prediction_message(match_row, historical_df):
     # Format kickoff time
     match_utc = parse_match_datetime(match_row)
     utc_str, local_str = format_times_for_message(match_utc)
-    time_str = f"🕒 Kickoff: {utc_str} | {local_str}" if not pd.isna(match_utc) else "🕒 Kickoff: TBD (today | tomorrow)"
+    time_str = f"🕒Kickoff: {utc_str} | {local_str}" if not pd.isna(match_utc) else "🕒 Kickoff: TBD (today | tomorrow)"
     
     # Build final message
     separator = "─" * 30
     message = (
-        "TIP\n"
-        f"🏆{league_name}\n"
-        f"⏰{time_str}\n"
-        f"🏠{home} vs {away}\n"
-        f"💡 {best_tip}\n\n"
-        f"🏠 Home: {hda_proba[0]:.0%} | 🤝 Draw: {hda_proba[1]:.0%} | 🚌 Away: {hda_proba[2]:.0%}\n"
-        f"⚽⚽ Both Teams to Score: {gg_proba:.0%}\n"
-        f"⚽⚽⚽ Over 2.5 Goals: {over25_proba:.0%}\n"
+        f"📌*TIP ALERT*\n"
+        f"🏆League: {league_name}\n"
+         f"🏠{home} vs {away}\n"
+        f"{time_str}\n"
+        f"*→*:{best_tip}\n\n"
+        f"🏠 Home: {hda_proba[0]:.0%} *|* 🤝 Draw: {hda_proba[1]:.0%} *|* 🚌 Away: {hda_proba[2]:.0%}\n"
+        f"⚽Both Teams to Score: {gg_proba:.0%}\n"
+        f"📈Over 2.5 Goals: {over25_proba:.0%}\n"
     )
     
     # Add value alert if edge is strong (≥2%)
     if edge > 0.02:
         message += (
-            f"\n\n⚠️ HIGH VALUE ALERT!\n"
-            f"Model: {home_win_prob:.0%} Home | Market Baseline: ~{market_baseline:.0%}\n"
-            f"→ {edge:+.0%} edge (Our Model vs Historical Average)"
+             f"\n`" + "─" * 20 + "`\n"
+            f"⚠️ *HIGH VALUE ALERT!*\n"
+            f"📊 *Model*: {home_win_prob:.0%} Home | *Market Baseline*: ~{market_baseline:.0%}\n"
+            f"➡️ {edge:+.0%} *edge (Our Model vs Historical Average)*\n"
         )
     
     # Responsible gambling footer
@@ -465,15 +471,19 @@ def main():
     # Send header only if models are available
     if MODELS:
         header = (
-            "scoresignal uses 10+ years of historical data and machine learning "
-            "to curate probabilistic football tips.\n\n"
-            "⚠️ Disclaimer: Predictions are probabilistic from our model, not guarantees. "
-            "🔐 For advanced modelling tips, support via MPESA:\n"
-            "📌 TILL: 9105695\n\n"
-            "Thank you for your support! 💙\n"
-            "scoresignal || Data-driven football tips"
-        )
-        send_telegram_message(header)
+            "*scoresignal* curates fixtures from over *15 major European leagues*, leveraging over a decade of data "
+            "and advanced machine learning models to deliver probabilistic football insights.\n\n"
+            "Our pipeline blends engineered features with outcome targets to identify *value opportunities*. "
+            "Tips highlight matches where the model detects an *edge beyond baseline expectations*.\n\n"
+            "📌 _Note: Some leagues publish only a match date (e.g. weekend fixtures). "
+            "Kick-off times may shift, so certain games could already be played or scheduled earlier/later than shown._\n\n"
+            "⚠️ *Disclaimer:* Predictions are probabilistic, not guarantees.\n"
+            "🔐 For advanced modelling tips contact *help*\n\n"
+            "`" + ("─" * 30) + "`\n\n"
+            "🙏 Thank you for your support. *MPESA TILL:* `9105695`\n"
+            "*scoresignal* • _Data-driven football tips_ • *Bet responsibly*"
+            )
+
     else:
         send_telegram_message("🔧 System starting up - models loading...")
     
@@ -507,7 +517,7 @@ def main():
     print(f"🕒 Current Nairobi time: {now.strftime('%Y-%m-%d %H:%M')}")
 
     # Tier logic (using Nairobi time)
-    if 7 <= current_hour <= 9:  # Tier 1
+    if 8 <= current_hour <= 10:  # Tier 1
         tier_name = "Tier 1 (No-time)"
         print("🕐 Running Tier 1: No-time matches")
         all_sent_tips.extend(run_prediction_tier(tier_name, no_time, historical_df, collect_for_summary=True))
