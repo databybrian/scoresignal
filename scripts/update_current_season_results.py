@@ -1,23 +1,30 @@
-# update_current_season.py
+# update_current_season_results.py
 
 import pandas as pd
-import os
+import sys
 from pathlib import Path
 import requests
 from tqdm import tqdm
 from io import StringIO
-from config import current_season
-from data_utils import format_date_column
-from config import SCRIPT_DIR
 
-# Configuration
-LEAGUE_CONFIG_FILE = SCRIPT_DIR / "footballdata_league_list.csv"
-HISTORICAL_FILE = SCRIPT_DIR/"combined_historical_data.csv"
-CURRENT_SEASON = "2526"  # Update annually
-BASE_URL = "https://www.football-data.co.uk"
+# Get project root (parent of scripts/)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
-def load_league_config(filepath: str = "combined_historical_data.csv") -> pd.DataFrame:
+# Import from config (without SCRIPT_DIR)
+from bot.config import current_season
+from src.data_utils import format_date_column
+
+# Configuration - use correct paths
+LEAGUE_CONFIG_FILE = PROJECT_ROOT / "raw_data" / "footballdata_league_list.csv"
+HISTORICAL_FILE = PROJECT_ROOT / "raw_data" / "combined_historical_data.csv"
+CURRENT_SEASON = "2526"
+BASE_URL = "https://www.football-data.co.uk"  # Fixed extra spaces
+
+def load_league_config(filepath: str = None) -> pd.DataFrame:
     """Load league configuration"""
+    if filepath is None:
+        filepath = LEAGUE_CONFIG_FILE
     return pd.read_csv(filepath)
 
 def download_current_season_data() -> pd.DataFrame:
@@ -40,8 +47,9 @@ def download_current_season_data() -> pd.DataFrame:
             print(f"🗑️  Removed {pre_filter_count - len(historical_df):,} old {current_season} matches")
     
     # Load league config and filter valid leagues
-    league_df = pd.read_csv(LEAGUE_CONFIG_FILE)
-    valid_leagues = league_df.dropna(subset=['league_code'])[['country', 'league_name', 'league_code']].drop_duplicates()
+    league_df = load_league_config()
+    # Make sure you're using the correct column name from your CSV
+    valid_leagues = league_df.dropna(subset=['odds_league_code'])[['country', 'league_name', 'odds_league_code']].drop_duplicates()
     
     print(f"⚽ Processing {len(valid_leagues)} leagues for season {current_season}")
     
@@ -50,7 +58,7 @@ def download_current_season_data() -> pd.DataFrame:
     
     for _, row in tqdm(valid_leagues.iterrows(), total=len(valid_leagues), desc="Downloading leagues"):
         country = row['country']
-        league_code = row['league_code']
+        league_code = row['odds_league_code']  # Updated column name
         league_name = row['league_name']
         
         url = f"{BASE_URL}/{current_season}/{league_code}.csv"
