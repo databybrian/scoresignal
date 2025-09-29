@@ -5,6 +5,7 @@ Handles sending predictions or other messages to Telegram chats.
 """
 
 import requests
+from typing import Optional
 from .config import TELEGRAM_BOT_TOKEN
 from .chat_manager import get_active_chat_ids
 
@@ -13,7 +14,7 @@ session = requests.Session()
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
-def send_telegram_message(message: str, chat_id: str = None):
+def send_telegram_message(message: str, chat_id: Optional[str] = None):
     """
     Send message to specific chat ID or all active chats.
     """
