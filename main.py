@@ -446,16 +446,16 @@ def should_send_tip(hda_proba, gg_proba, over25_proba, edge):
     home_win, draw, away_win = hda_proba
 
     # HDA: Clear favorite
-    hda_clear = (home_win >= 0.55) or (away_win >= 0.55) or (draw >= 0.40)
+    hda_clear = (home_win >= 0.58) or (away_win >= 0.58) or (draw >= 0.38)
 
     # GG: Decisive probability
-    gg_clear = (gg_proba >= 0.65) or (gg_proba <= 0.35)
+    gg_clear = (gg_proba >= 0.68) or (gg_proba <= 0.32)
 
     # Over/Under: Decisive probability
-    ou_clear = (over25_proba >= 0.65) or (over25_proba <= 0.35)
+    ou_clear = (over25_proba >= 0.68) or (over25_proba <= 0.32)
 
     # Value edge is strong
-    strong_edge = edge >= 0.02
+    strong_edge = edge >= 0.04
 
     # Send if any condition is met
     return hda_clear or gg_clear or ou_clear or strong_edge
@@ -860,7 +860,7 @@ def main():
             next_start_dt, next_tier_label = next_tier_start(now)
             msg = (
                 f"📭 In our {tier_name} scan we didn't find high-confidence tips.\n\n"
-                f"⏭️ Next predictions will be sent at: {format_time(next_start_dt)} Nairobi time ({next_tier_label})"
+                f"⏭️ Next predictions will be sent at: {format_time(next_start_dt)} ({next_tier_label})"
             )
             send_telegram_message(msg)
             print(msg)
