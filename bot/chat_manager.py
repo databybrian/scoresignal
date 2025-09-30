@@ -7,9 +7,7 @@ import os
 import psycopg2
 from typing import Set
 
-# Railway provides this automatically; ensure it is set in your environment
 DB_URL = os.getenv("DATABASE_URL")
-conn = psycopg2.connect(DB_URL, sslmode="require")
 
 
 def _get_conn():
@@ -19,33 +17,54 @@ def _get_conn():
     return psycopg2.connect(DB_URL, sslmode="require")
 
 
-def add_chat_id(chat_id: int, username: str = None) -> None:
-    """Add a new chat ID if not already present."""
+def ensure_table():
+    """Create the telegram_chats table if it doesn't exist."""
     conn = _get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO telegram_chats (chat_id, username)
-                    VALUES (%s, %s)
-                    ON CONFLICT (chat_id) DO NOTHING
+                    CREATE TABLE IF NOT EXISTS telegram_chats (
+                        chat_id BIGINT PRIMARY KEY,
+                        username TEXT,
+                        active BOOLEAN DEFAULT TRUE,
+                        joined_at TIMESTAMP DEFAULT NOW()
+                    )
+                    """
+                )
+    finally:
+        conn.close()
+
+
+def add_chat_id(chat_id: int, username: str = None) -> None:
+    """Add a new chat ID or reactivate if already exists."""
+    conn = _get_conn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO telegram_chats (chat_id, username, active)
+                    VALUES (%s, %s, TRUE)
+                    ON CONFLICT (chat_id) DO UPDATE
+                    SET active = TRUE, username = EXCLUDED.username
                     """,
                     (chat_id, username),
                 )
-        print(f"✅ Added chat ID {chat_id}")
+        print(f"✅ Added/updated chat ID {chat_id}")
     finally:
         conn.close()
 
 
 def remove_chat_id(chat_id: int) -> None:
-    """Remove a chat ID."""
+    """Mark a chat ID as inactive (unsubscribe)."""
     conn = _get_conn()
     try:
         with conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM telegram_chats WHERE chat_id=%s", (chat_id,))
-        print(f"🗑️ Removed chat ID {chat_id}")
+                cur.execute("UPDATE telegram_chats SET active = FALSE WHERE chat_id = %s", (chat_id,))
+        print(f"🗑️ Deactivated chat ID {chat_id}")
     finally:
         conn.close()
 
@@ -55,8 +74,8 @@ def get_active_chat_ids() -> Set[int]:
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT chat_id FROM telegram_chats")
+            cur.execute("SELECT chat_id FROM telegram_chats WHERE active = TRUE")
             rows = cur.fetchall()
-        return set(row[0] for row in rows)
+        return {row[0] for row in rows}
     finally:
         conn.close()

@@ -61,6 +61,8 @@ try:
     from bot.telegram_bot import send_telegram_message
     from bot.llm_summary import generate_daily_summary, create_summary_message
     from bot.time_utils import get_next_tips_time, format_time, get_now_nairobi
+    from bot.chat_manager import ensure_table
+
 except ImportError as e:
     print(f"❌ Failed to import modules: {e}")
     # Minimal fallbacks (safe)
@@ -723,6 +725,8 @@ def reset_daily_flag_if_new_day():
                 pass
 
 def main():
+    #ensure dB table exists before anything else
+    ensure_table()
     global last_tier
 
     # Informational run check
