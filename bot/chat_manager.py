@@ -1,67 +1,62 @@
 # bot/chat_manager.py
 """
-Chat manager for handling active Telegram chat IDs.
-Stores IDs in a local JSON file under /data.
+Chat manager for handling active Telegram chat IDs using PostgreSQL (Railway DB).
 """
 
-import json
-from pathlib import Path
+import os
+import psycopg2
 from typing import Set
 
-CHAT_IDS_FILE = Path(__file__).parent.parent / "data" / "active_chats.json"
+# Railway provides this automatically; ensure it is set in your environment
+DB_URL = os.getenv("DATABASE_URL")
+conn = psycopg2.connect(DATABASE_URL, sslmode="require")
 
 
-def load_chat_ids() -> Set[str]:
-    """Load active chat IDs from file (returns empty set if missing or invalid)."""
-    if not CHAT_IDS_FILE.exists():
-        return set()
+def _get_conn():
+    """Get a new database connection with SSL required for Railway."""
+    if not DB_URL:
+        raise RuntimeError("❌ DATABASE_URL not configured")
+    return psycopg2.connect(DB_URL, sslmode="require")
 
+
+def add_chat_id(chat_id: int, username: str = None) -> None:
+    """Add a new chat ID if not already present."""
+    conn = _get_conn()
     try:
-        with open(CHAT_IDS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            chats = data.get("chats", [])
-            return set(str(chat_id) for chat_id in chats)
-    except (json.JSONDecodeError, OSError, KeyError) as e:
-        print(f"⚠️ Failed to load chat IDs ({e}), resetting file")
-        return set()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO telegram_chats (chat_id, username)
+                    VALUES (%s, %s)
+                    ON CONFLICT (chat_id) DO NOTHING
+                    """,
+                    (chat_id, username),
+                )
+        print(f"✅ Added chat ID {chat_id}")
+    finally:
+        conn.close()
 
 
-def save_chat_ids(chat_ids: Set[str]) -> None:
-    """Save chat IDs to file (atomic write)."""
-    CHAT_IDS_FILE.parent.mkdir(exist_ok=True)
-
-    tmp_file = CHAT_IDS_FILE.with_suffix(".tmp")
+def remove_chat_id(chat_id: int) -> None:
+    """Remove a chat ID."""
+    conn = _get_conn()
     try:
-        with open(tmp_file, "w", encoding="utf-8") as f:
-            json.dump({"chats": sorted(chat_ids)}, f, indent=2)
-        tmp_file.replace(CHAT_IDS_FILE)
-    except OSError as e:
-        print(f"❌ Failed to save chat IDs: {e}")
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM telegram_chats WHERE chat_id=%s", (chat_id,))
+        print(f"🗑️ Removed chat ID {chat_id}")
+    finally:
+        conn.close()
 
 
-def add_chat_id(chat_id: str) -> None:
-    """Add a new chat ID to active chats."""
-    chat_ids = load_chat_ids()
-    if str(chat_id) not in chat_ids:
-        chat_ids.add(str(chat_id))
-        save_chat_ids(chat_ids)
-        print(f"✅ Added new chat ID: {chat_id}")
-    else:
-        print(f"ℹ️ Chat ID already active: {chat_id}")
-
-
-def remove_chat_id(chat_id: str) -> None:
-    """Remove a chat ID from active chats."""
-    chat_ids = load_chat_ids()
-    if str(chat_id) in chat_ids:
-        chat_ids.remove(str(chat_id))
-        save_chat_ids(chat_ids)
-        print(f"🗑️ Removed chat ID: {chat_id}")
-    else:
-        print(f"ℹ️ Chat ID not found: {chat_id}")
-
-
-
-def get_active_chat_ids() -> Set[str]:
-    """Return all active chat IDs."""
-    return load_chat_ids()
+def get_active_chat_ids() -> Set[int]:
+    """Return all currently active chat IDs."""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id FROM telegram_chats")
+            rows = cur.fetchall()
+        return set(row[0] for row in rows)
+    finally:
+        conn.close()

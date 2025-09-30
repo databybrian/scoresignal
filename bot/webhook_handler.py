@@ -2,11 +2,10 @@
 """
 Telegram webhook handler for scoresignal bot.
 Handles /start and /stop commands via Flask.
+Uses PostgreSQL for storing active chat IDs.
 """
 
 from flask import Flask, request, jsonify
-import requests
-
 from .chat_manager import add_chat_id, remove_chat_id
 from .telegram_bot import send_telegram_message
 
@@ -25,12 +24,13 @@ def telegram_webhook():
             return jsonify({"status": "ignored", "reason": "no message"}), 200
 
         message = data["message"]
-        chat_id = str(message["chat"]["id"])
+        chat_id = int(message["chat"]["id"])
         text = message.get("text", "").strip()
+        username = message.get("from", {}).get("username")
 
         # Handle commands
         if text == "/start":
-            add_chat_id(chat_id)
+            add_chat_id(chat_id, username=username)
             welcome_msg = (
                 "🤖 Welcome to *scoresignal!*\n\n"
                 "You'll now receive daily football predictions with:\n"

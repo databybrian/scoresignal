@@ -33,7 +33,7 @@ def should_run_now():
     the strict tip windows (for info). The script will run on every cron trigger.
     """
     nairobi_tz = pytz.timezone('Africa/Nairobi')
-    now = datetime.now(nairobibi_tz := nairobi_tz)
+    now = datetime.now(nairobi_tz := nairobi_tz)
 
     # tip windows (Nairobi time) - informational only
     tip_windows = [
@@ -340,7 +340,7 @@ def format_times_for_message(match_utc):
     if pd.isna(match_utc):
         return "TBD", "TBD"
     utc_time = match_utc.tz_convert('UTC').strftime('%H:%M UTC')
-    local_time = match_utc.tz_convert('Etc/GMT-3').strftime('%H:%M EAT')
+    local_time = match_utc.tz_convert('Africa/Nairobi').strftime('%H:%M EAT')
     return utc_time, local_time
 
 # -------------------
@@ -684,7 +684,7 @@ def run_prediction_tier(tier_name, fixtures_subset, historical_df, collect_for_s
                 print(f"❌ Telegram API error for {home} vs {away}: {telegram_error}")
 
             # Be kind to APIs
-            time.sleep(1)
+            time.sleep(0.5)
 
         except Exception as e:
             print(f"❌ Error predicting {home} vs {away}: {e}")
@@ -781,7 +781,7 @@ def main():
                 "and advanced machine learning models to deliver probabilistic football insights.\n\n"
                 "`" + ("─" * 30) + "`\n\n"
                 "🙏 Thank you for your support. *MPESA TILL:* `9105695`\n"
-                "*scoresignal* • _Data-driven football tips_ • *Bet responsibly*"
+                "*scoresignal* • *Data-driven football tips* • *Bet responsibly*"
             )
             try:
                 send_telegram_message(header)
@@ -817,7 +817,7 @@ def main():
         "and advanced machine learning models to deliver probabilistic football insights.\n\n"
         "`" + ("─" * 30) + "`\n\n"
         "🙏 Thank you for your support. *MPESA TILL:* `9105695`\n"
-        "*scoresignal* • _Data-driven football tips_ • *Bet responsibly*"
+        "*scoresignal* • *Data-driven football tips*• *Bet responsibly*"
     )
     try:
         send_telegram_message(header)
