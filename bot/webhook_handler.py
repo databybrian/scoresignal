@@ -12,6 +12,7 @@ from .telegram_bot import send_telegram_message
 
 app = Flask(__name__)
 
+
 @app.route("/test-db")
 def test_db():
     try:
@@ -76,12 +77,24 @@ def telegram_webhook():
         print(f"❌ Webhook error: {e}")
         return jsonify({"status": "error", "detail": str(e)}), 500
 
+@app.route("/")
+def root():
+    return "✅ Bot is alive", 200
+
+
+@app.route("/webhook", methods=["POST"])
+def telegram_webhook():
+    update = request.get_json(force=True, silent=True)
+    print("📩 Incoming update:", update)
+
+    # Always return 200 OK so Telegram doesn’t retry
+    return {"status": "received"}, 200
+
 # Health check endpoint for Railway
 @app.route("/health")
 def health_check():
     """Health check endpoint for monitoring."""
     return jsonify({"status": "healthy", "service": "telegram-webhook"}), 200
-
 
 if __name__ == "__main__":
     # Local development server
