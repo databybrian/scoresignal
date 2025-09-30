@@ -4,6 +4,7 @@ Telegram webhook handler for scoresignal bot.
 Handles /start and /stop commands via Flask.
 Uses PostgreSQL for chat subscription management.
 """
+import os
 
 from flask import Flask, request, jsonify
 from .chat_manager import add_chat_id, remove_chat_id
@@ -84,4 +85,5 @@ def health_check():
 
 if __name__ == "__main__":
     # Local development server
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=False)
