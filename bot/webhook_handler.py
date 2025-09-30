@@ -9,8 +9,8 @@ import os
 import logging
 from flask import Flask, request, jsonify
 
-from .chat_manager import add_chat_id, remove_chat_id, get_active_chat_ids
-from .telegram_bot import send_telegram_message
+from bot.chat_manager import add_chat_id, remove_chat_id, get_active_chat_ids
+from bot.telegram_bot import send_telegram_message
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
