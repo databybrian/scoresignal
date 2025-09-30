@@ -1,93 +1,81 @@
 # bot/chat_manager.py
+"""
+Chat manager for handling active Telegram chat IDs using PostgreSQL (Railway DB).
+"""
+
 import os
 import psycopg2
-from typing import Set, Optional
+from typing import Set
 
-# PostgreSQL connection details (set by Railway)
 DB_URL = os.getenv("DATABASE_URL")
 
-def get_db_connection():
-    """Get PostgreSQL connection."""
-    try:
-        conn = psycopg2.connect(DB_URL)
-        return conn
-    except Exception as e:
-        print(f"❌ PostgreSQL connection error: {e}")
-        return None
 
-def init_db():
-    """Initialize chat table if not exists."""
-    conn = get_db_connection()
-    if not conn:
-        return
-    
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS active_chats (
-            chat_id BIGINT PRIMARY KEY,
-            username TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
-    conn.commit()
-    cursor.close()
-    conn.close()
+def _get_conn():
+    """Get a new database connection with SSL required for Railway."""
+    if not DB_URL:
+        raise RuntimeError("❌ DATABASE_URL not configured")
+    return psycopg2.connect(DB_URL, sslmode="require")
 
-def add_chat_id(chat_id: int, username: Optional[str] = None):
-    """Add a new chat ID to active chats."""
-    conn = get_db_connection()
-    if not conn:
-        return
-    
-    cursor = conn.cursor()
+
+def ensure_table():
+    """Create the telegram_chats table if it doesn't exist."""
+    conn = _get_conn()
     try:
-        cursor.execute("""
-            INSERT INTO active_chats (chat_id, username) 
-            VALUES (%s, %s) 
-            ON CONFLICT (chat_id) DO NOTHING
-        """, (chat_id, username))
-        conn.commit()
-        print(f"✅ Added new chat ID: {chat_id}")
-    except Exception as e:
-        print(f"❌ Failed to add chat ID {chat_id}: {e}")
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS telegram_chats (
+                        chat_id BIGINT PRIMARY KEY,
+                        username TEXT,
+                        active BOOLEAN DEFAULT TRUE,
+                        joined_at TIMESTAMP DEFAULT NOW()
+                    )
+                    """
+                )
     finally:
-        cursor.close()
         conn.close()
 
-def remove_chat_id(chat_id: int):
-    """Remove a chat ID from active chats."""
-    conn = get_db_connection()
-    if not conn:
-        return
-    
-    cursor = conn.cursor()
+
+def add_chat_id(chat_id: int, username: str = None) -> None:
+    """Add a new chat ID or reactivate if already exists."""
+    conn = _get_conn()
     try:
-        cursor.execute("DELETE FROM active_chats WHERE chat_id = %s", (chat_id,))
-        conn.commit()
-        print(f"✅ Removed chat ID: {chat_id}")
-    except Exception as e:
-        print(f"❌ Failed to remove chat ID {chat_id}: {e}")
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO telegram_chats (chat_id, username, active)
+                    VALUES (%s, %s, TRUE)
+                    ON CONFLICT (chat_id) DO UPDATE
+                    SET active = TRUE, username = EXCLUDED.username
+                    """,
+                    (chat_id, username),
+                )
+        print(f"✅ Added/updated chat ID {chat_id}")
     finally:
-        cursor.close()
         conn.close()
+
+
+def remove_chat_id(chat_id: int) -> None:
+    """Mark a chat ID as inactive (unsubscribe)."""
+    conn = _get_conn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE telegram_chats SET active = FALSE WHERE chat_id = %s", (chat_id,))
+        print(f"🗑️ Deactivated chat ID {chat_id}")
+    finally:
+        conn.close()
+
 
 def get_active_chat_ids() -> Set[int]:
-    """Get all active chat IDs."""
-    conn = get_db_connection()
-    if not conn:
-        return set()
-    
-    cursor = conn.cursor()
+    """Return all currently active chat IDs."""
+    conn = _get_conn()
     try:
-        cursor.execute("SELECT chat_id FROM active_chats")
-        rows = cursor.fetchall()
-        return set(row[0] for row in rows)
-    except Exception as e:
-        print(f"❌ Failed to fetch active chats: {e}")
-        return set()
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id FROM telegram_chats WHERE active = TRUE")
+            rows = cur.fetchall()
+        return {row[0] for row in rows}
     finally:
-        cursor.close()
         conn.close()
-
-# Initialize database on import
-init_db()
