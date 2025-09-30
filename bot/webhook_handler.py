@@ -2,53 +2,65 @@
 """
 Telegram webhook handler for scoresignal bot.
 Handles /start and /stop commands via Flask.
+Uses PostgreSQL for chat subscription management.
 """
 
 from flask import Flask, request, jsonify
-import requests
-
-from .chat_manager import add_chat_id, remove_chat_id, ensure_table 
+from .chat_manager import add_chat_id, remove_chat_id
 from .telegram_bot import send_telegram_message
 
 app = Flask(__name__)
 
-ensure_table()
+
 @app.route("/webhook", methods=["POST"])
 def telegram_webhook():
-    """Handle incoming Telegram updates."""
+    """
+    Handle incoming Telegram webhook updates.
+    Responds to /start and /stop commands only.
+    """
     try:
+        # Parse incoming JSON
         data = request.get_json(force=True, silent=True)
         if not data:
-            return jsonify({"status": "ignored", "reason": "no JSON"}), 400
+            return jsonify({"status": "ignored", "reason": "no JSON payload"}), 400
 
+        # Ensure it's a message
         if "message" not in data:
-            return jsonify({"status": "ignored", "reason": "no message"}), 200
+            return jsonify({"status": "ignored", "reason": "not a message"}), 200
 
         message = data["message"]
-        chat_id = str(message["chat"]["id"])
+        chat = message.get("chat", {})
+        chat_id = chat.get("id")
         text = message.get("text", "").strip()
 
-        # Handle commands
+        # Validate chat_id
+        if not chat_id:
+            return jsonify({"status": "ignored", "reason": "missing chat_id"}), 400
+
+        chat_id = str(chat_id)
+
+        # Handle supported commands
         if text == "/start":
             add_chat_id(chat_id)
             welcome_msg = (
-                "🤖 Welcome to *scoresignal!*\n\n"
-                "You'll now receive daily football predictions with:\n"
-                "• High-confidence tips\n"
-                "• Value alerts\n"
-                "• Daily summaries\n\n"
-                "💡 Bet responsibly"
+                "🤖 Welcome to *scoresignal!*\\n\\n"
+                "You'll now receive daily football predictions with:\\n"
+                "• High-confidence tips\\n"
+                "• Value alerts\\n"
+                "• Daily summaries\\n\\n"
+                "💡 Always gamble responsibly"
             )
             send_telegram_message(welcome_msg, chat_id=chat_id)
 
         elif text == "/stop":
             remove_chat_id(chat_id)
             goodbye_msg = (
-                "👋 You’ve unsubscribed from scoresignal.\n\n"
+                "👋 You’ve unsubscribed from scoresignal.\\n\\n"
                 "Send /start anytime to rejoin."
             )
             send_telegram_message(goodbye_msg, chat_id=chat_id)
 
+        # Ignore all other messages (no response)
         return jsonify({"status": "ok"})
 
     except Exception as e:
@@ -56,6 +68,13 @@ def telegram_webhook():
         return jsonify({"status": "error", "detail": str(e)}), 500
 
 
+# Health check endpoint for Railway
+@app.route("/health")
+def health_check():
+    """Health check endpoint for monitoring."""
+    return jsonify({"status": "healthy", "service": "telegram-webhook"}), 200
+
+
 if __name__ == "__main__":
-    # Local dev mode
-    app.run(host="0.0.0.0", port=5000)
+    # Local development server
+    app.run(host="0.0.0.0", port=5000, debug=False)
