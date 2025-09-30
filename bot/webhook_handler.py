@@ -11,6 +11,14 @@ from .telegram_bot import send_telegram_message
 
 app = Flask(__name__)
 
+@app.route("/test-db")
+def test_db():
+    try:
+        from bot.chat_manager import get_active_chat_ids
+        chats = get_active_chat_ids()
+        return f"✅ DB connected. Active chats: {len(chats)}"
+    except Exception as e:
+        return f"❌ DB error: {e}"
 
 @app.route("/webhook", methods=["POST"])
 def telegram_webhook():
@@ -66,7 +74,6 @@ def telegram_webhook():
     except Exception as e:
         print(f"❌ Webhook error: {e}")
         return jsonify({"status": "error", "detail": str(e)}), 500
-
 
 # Health check endpoint for Railway
 @app.route("/health")
