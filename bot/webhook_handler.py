@@ -45,7 +45,7 @@ def telegram_webhook():
         if not chat_id:
             return jsonify({"status": "ignored", "reason": "missing chat_id"}), 400
 
-        chat_id = str(chat_id)
+        chat_id = int(chat_id)
 
         # Handle supported commands
         if text == "/start":
