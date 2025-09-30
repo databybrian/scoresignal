@@ -6,10 +6,13 @@ Uses PostgreSQL for storing active chat IDs.
 """
 
 from flask import Flask, request, jsonify
-from .chat_manager import add_chat_id, remove_chat_id
+from .chat_manager import add_chat_id, remove_chat_id, ensure_table
 from .telegram_bot import send_telegram_message
 
 app = Flask(__name__)
+
+# ✅ Ensure DB table exists when service starts
+ensure_table()
 
 
 @app.route("/webhook", methods=["POST"])
@@ -25,7 +28,7 @@ def telegram_webhook():
 
         message = data["message"]
         chat_id = int(message["chat"]["id"])
-        text = message.get("text", "").strip()
+        text = message.get("text", "").strip().lower()
         username = message.get("from", {}).get("username")
 
         # Handle commands
@@ -33,10 +36,11 @@ def telegram_webhook():
             add_chat_id(chat_id, username=username)
             welcome_msg = (
                 "🤖 Welcome to *scoresignal!*\n\n"
-                "You'll now receive daily football predictions with:\n"
+                "You'll now receive quality daily football predictions with:\n"
                 "• High-confidence tips\n"
                 "• Value alerts\n"
                 "• Daily summaries\n\n"
+                f"\n`" + "─" * 20 + "`\n"
                 "💡 Bet responsibly"
             )
             send_telegram_message(welcome_msg, chat_id=chat_id)
@@ -48,6 +52,10 @@ def telegram_webhook():
                 "Send /start anytime to rejoin."
             )
             send_telegram_message(goodbye_msg, chat_id=chat_id)
+
+        else:
+            help_msg = "ℹ️ Use /start to subscribe or /stop to unsubscribe."
+            send_telegram_message(help_msg, chat_id=chat_id)
 
         return jsonify({"status": "ok"})
 
