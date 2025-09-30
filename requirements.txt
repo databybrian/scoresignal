@@ -10,3 +10,4 @@ schedule==1.2.2
 scikit_learn==1.7.2
 tqdm==4.67.1
 xgboost==3.0.5
+gunicorn>=23.0
