@@ -9,7 +9,7 @@ from typing import Set
 
 # Railway provides this automatically; ensure it is set in your environment
 DB_URL = os.getenv("DATABASE_URL")
-conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+conn = psycopg2.connect(DB_URL, sslmode="require")
 
 
 def _get_conn():
