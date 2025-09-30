@@ -9,10 +9,6 @@ from typing import Optional
 from .config import TELEGRAM_BOT_TOKEN
 from .chat_manager import get_active_chat_ids
 
-# Reuse one session for efficiency
-session = requests.Session()
-API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
-
 
 def send_telegram_message(message: str, chat_id: Optional[str] = None):
     """
@@ -22,6 +18,7 @@ def send_telegram_message(message: str, chat_id: Optional[str] = None):
         print("❌ TELEGRAM_BOT_TOKEN not configured")
         return
     
+    # ✅ FIXED: No extra spaces in URL
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
     # If specific chat_id provided, send only to that chat
@@ -42,7 +39,7 @@ def send_telegram_message(message: str, chat_id: Optional[str] = None):
             print(f"❌ Error sending to chat {chat_id}: {e}")
         return
     
-    # Otherwise, send to all active chats (existing logic)
+    # Otherwise, send to all active chats
     active_chats = get_active_chat_ids()
     if not active_chats:
         print("⚠️  No active chats to send to")

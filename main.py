@@ -725,8 +725,13 @@ def reset_daily_flag_if_new_day():
                 pass
 
 def main():
-    #ensure dB table exists before anything else
-    ensure_table()
+    # Ensure DB table exists before anything else
+    try:
+        ensure_table()
+    except Exception as e:
+        print(f"⚠️  Database initialization failed (continuing): {e}")
+        # Don't crash — predictions can still run, just won't send to chats
+        # (Telegram messages will fail gracefully in send_telegram_message)
     global last_tier
 
     # Informational run check
