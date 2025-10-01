@@ -15,43 +15,11 @@ import traceback
 import pandas as pd
 import numpy as np
 import pytz
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 import joblib
 
 print(f"PROJECT_ROOT: {PROJECT_ROOT}")
 print(f"src path: {PROJECT_ROOT / 'src'}")
-print("Current Python path:")
-for i, path in enumerate(sys.path):
-    print(f"  {i}: {path}")
-
-# -------------------
-# Run scheduler behavior
-# -------------------
-def should_run_now():
-    """
-    We keep the hourly cron schedule. This helper logs whether we are inside
-    the strict tip windows (for info). The script will run on every cron trigger.
-    """
-    nairobi_tz = pytz.timezone('Africa/Nairobi')
-    now = datetime.now(nairobi_tz := nairobi_tz)
-
-    # tip windows (Nairobi time) - informational only
-    tip_windows = [
-        (8, 0),   # 8:00 AM
-        (12, 0),  # 12:00 PM
-        (16, 0)   # 4:00 PM
-    ]
-
-    for hour, minute in tip_windows:
-        target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        time_diff = abs((now - target_time).total_seconds())
-        if time_diff <= 300:
-            print(f"⏰ Within a tip window (near {hour}:{minute:02d} Nairobi time)")
-            return True
-
-    # Not in a strict window — but we still run because cron calls hourly.
-    print("ℹ️ Not inside strict tip window — performing scheduled hourly scan (no Telegram messages outside tiers)")
-    return True
 
 # -------------------
 # Import project modules (with safe fallbacks)
@@ -95,66 +63,95 @@ DATA_DIR = PROJECT_ROOT / "data"
 MODEL_DIR = PROJECT_ROOT / "model"
 PREDICTION_LOG = DATA_DIR / "prediction_log.csv"
 PREDICTION_LOG_BACKUP_DIR = DATA_DIR / "prediction_log_backups"
+EXECUTION_LOCK = PROJECT_ROOT / ".execution.lock"
 
 # ensure directories exist
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 PREDICTION_LOG_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
-# Track first-tier "no matches today" message per day (prevents spamming when no fixtures)
-DAILY_FLAG = PROJECT_ROOT / ".first_tier_notified"
-
-# load models once
-def safe_load_models():
-    """Safely load models with error handling"""
-    models = {}
-    try:
-        print("🚀 Loading models...")
-        models['hda'] = joblib.load(MODEL_DIR / "football_model_hda.pkl")
-        models['gg'] = joblib.load(MODEL_DIR / "football_model_gg.pkl")
-        models['over25'] = joblib.load(MODEL_DIR / "football_model_over25.pkl")
-        models['value_map'] = joblib.load(MODEL_DIR / "value_alert_map.pkl")
-        models['feature_cols'] = joblib.load(MODEL_DIR / "feature_columns.pkl")
-        print("✅ Models loaded!")
-        return models
-    except Exception as e:
-        print(f"❌ Failed to load models: {e}")
-        traceback.print_exc()
-        return None
-
-MODELS = safe_load_models()
-if MODELS is None:
-    print("🆘 Continuing without models - predictions will be disabled")
-    MODELS = {}
+# Track daily notification state
+DAILY_FLAG = PROJECT_ROOT / ".daily_notified"
 
 # -------------------
-# Backup utilities (prediction_log) with rotation
+# Cross-Platform Execution Lock
 # -------------------
-def backup_prediction_log(max_keep: int = 7):
-    """
-    Copy current prediction log to backups with timestamp, then keep only
-    `max_keep` newest backups.
-    """
+def acquire_execution_lock():
+    """Prevent multiple instances from running simultaneously - cross-platform"""
     try:
-        if PREDICTION_LOG.exists():
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            dest = PREDICTION_LOG_BACKUP_DIR / f"prediction_log_{ts}.csv"
-            shutil.copy(PREDICTION_LOG, dest)
-            # rotate
-            backups = sorted(
-                PREDICTION_LOG_BACKUP_DIR.glob("prediction_log_*.csv"),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True
-            )
-            for old in backups[max_keep:]:
-                try:
-                    old.unlink()
-                except Exception:
-                    pass
-            print(f"📦 Backed up prediction log -> {dest} (kept {min(len(backups), max_keep)} backups)")
+        # Check if lock file exists and is recent (less than 30 minutes old)
+        if EXECUTION_LOCK.exists():
+            lock_age = (datetime.now() - datetime.fromtimestamp(EXECUTION_LOCK.stat().st_mtime)).total_seconds() / 60
+            if lock_age < 30:  # Lock is less than 30 minutes old
+                print("⏭️ Another instance is already running (lock file exists) - skipping")
+                return False
+            else:
+                # Stale lock - remove it
+                print("🔄 Removing stale execution lock")
+                EXECUTION_LOCK.unlink(missing_ok=True)
+        
+        # Create new lock file
+        EXECUTION_LOCK.write_text(f"Locked at: {datetime.now().isoformat()}")
+        return True
+        
     except Exception as e:
-        print(f"⚠️ Failed to backup prediction log: {e}")
-        traceback.print_exc()
+        print(f"⚠️ Lock acquisition failed: {e}")
+        return False
+
+def release_execution_lock():
+    """Release the execution lock"""
+    try:
+        if EXECUTION_LOCK.exists():
+            EXECUTION_LOCK.unlink()
+    except Exception as e:
+        print(f"⚠️ Lock release failed: {e}")
+
+# -------------------
+# New Scheduling Logic
+# -------------------
+def should_run_tips():
+    """
+    Use 15-minute windows around exact target times
+    """
+    nairobi_tz = pytz.timezone('Africa/Nairobi')
+    now = datetime.now(nairobi_tz)
+    current_time = now.time()
+    current_weekday = now.weekday()  # 0=Monday, 6=Sunday
+    
+    # Define time windows (15-minute windows)
+    morning_window_start = time(12, 0)   # 10:00 AM
+    morning_window_end = time(12, 15)    # 10:15 AM
+    
+    afternoon_window_start = time(16, 0) # 4:00 PM  
+    afternoon_window_end = time(16, 15)  # 4:15 PM
+    
+    # Weekday schedule
+    if current_weekday < 5:  # Monday-Friday
+        if morning_window_start <= current_time <= morning_window_end:
+            return True, 'morning'
+    
+    # Weekend schedule
+    else:  # Saturday-Sunday
+        if morning_window_start <= current_time <= morning_window_end:
+            return True, 'morning'
+        elif afternoon_window_start <= current_time <= afternoon_window_end:
+            return True, 'afternoon'
+    
+    return False, None
+
+def reset_daily_flag_if_new_day():
+    """Remove DAILY_FLAG if its date is older than today."""
+    if DAILY_FLAG.exists():
+        try:
+            ts = datetime.fromtimestamp(DAILY_FLAG.stat().st_mtime).date()
+            if ts < datetime.now().date():
+                DAILY_FLAG.unlink()
+                print("🔄 Daily flag reset for new day")
+        except Exception:
+            try:
+                DAILY_FLAG.unlink()
+            except Exception:
+                pass
 
 # -------------------
 # Freshness helpers (weekly refresh)
@@ -165,11 +162,11 @@ def file_age_days(path: Path) -> float:
     return (datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)).total_seconds() / 86400.0
 
 def needs_refresh(path: Path, days: int = 7) -> bool:
-    """Return True if file is missing or older than `days` days."""
     return not path.exists() or (file_age_days(path) >= days)
 
+
 # -------------------
-# Data processing functions (cleaning historical -> cleaned_historical_data.csv)
+# Historical Data Processing Functions
 # -------------------
 def process_raw_to_cleaned():
     """Process raw combined_historical_data.csv into cleaned_historical_data.csv"""
@@ -229,9 +226,6 @@ def process_raw_to_cleaned():
     print(f"✅ Saved cleaned historical data to {CLEANED_FILE}")
     return df
 
-# -------------------
-# Ensure historical data (weekly)
-# -------------------
 def ensure_historical_data_exists():
     """Ensure cleaned historical data exists (refresh weekly)"""
     CLEANED_FILE = DATA_DIR / "cleaned_historical_data.csv"
@@ -240,7 +234,7 @@ def ensure_historical_data_exists():
         print("✅ Cleaned historical data is recent - no refresh needed")
         return True
 
-    print("🔄 Setting up/refeshing historical data (weekly)...")
+    print("🔄 Setting up/refreshing historical data (weekly)...")
     try:
         # Step 1: Download raw data
         print("📥 Downloading raw historical data...")
@@ -276,17 +270,61 @@ def load_historical_data():
         return pd.DataFrame()  # Return empty, don't try to generate
 
 # -------------------
-# Fixtures fetching (weekly)
+# Model and Data Loading
 # -------------------
+def safe_load_models():
+    """Safely load models with error handling"""
+    models = {}
+    try:
+        print("🚀 Loading models...")
+        models['hda'] = joblib.load(MODEL_DIR / "football_model_hda.pkl")
+        models['gg'] = joblib.load(MODEL_DIR / "football_model_gg.pkl")
+        models['over25'] = joblib.load(MODEL_DIR / "football_model_over25.pkl")
+        models['value_map'] = joblib.load(MODEL_DIR / "value_alert_map.pkl")
+        models['feature_cols'] = joblib.load(MODEL_DIR / "feature_columns.pkl")
+        print("✅ Models loaded!")
+        return models
+    except Exception as e:
+        print(f"❌ Failed to load models: {e}")
+        traceback.print_exc()
+        return None
+
+MODELS = safe_load_models()
+if MODELS is None:
+    print("🆘 Continuing without models - predictions will be disabled")
+    MODELS = {}
+
+def backup_prediction_log(max_keep: int = 7):
+    """Backup prediction log with rotation"""
+    try:
+        if PREDICTION_LOG.exists():
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dest = PREDICTION_LOG_BACKUP_DIR / f"prediction_log_{ts}.csv"
+            shutil.copy(PREDICTION_LOG, dest)
+            backups = sorted(
+                PREDICTION_LOG_BACKUP_DIR.glob("prediction_log_*.csv"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True
+            )
+            for old in backups[max_keep:]:
+                try:
+                    old.unlink()
+                except Exception:
+                    pass
+            print(f"📦 Backed up prediction log -> {dest}")
+    except Exception as e:
+        print(f"⚠️ Failed to backup prediction log: {e}")
+
+
 def safe_fetch_fixtures():
-    """Safely fetch fixtures; refresh weekly to avoid repeated downloads."""
+    """Safely fetch fixtures; refresh weekly"""
     fixtures_file = DATA_DIR / "fixtures_data.csv"
 
     if fixtures_file.exists() and not needs_refresh(fixtures_file, days=7):
         print("✅ Fixtures file is recent - no refresh needed")
         return True
 
-    print("🔄 fixtures_data.csv missing/old - fetching live fixtures (weekly)...")
+    print("🔄 fixtures_data.csv missing/old - fetching live fixtures...")
     try:
         from src.fetch_fixtures_live import fetch_and_save_fixtures
         fetch_and_save_fixtures(str(fixtures_file))
@@ -294,8 +332,6 @@ def safe_fetch_fixtures():
         return True
     except Exception as e:
         print(f"❌ Failed to fetch fixtures: {e}")
-        traceback.print_exc()
-        # Create empty fixtures file as fallback
         empty_df = pd.DataFrame(columns=[
             'round', 'date', 'time', 'home_team', 'away_team',
             'home_score', 'away_score', 'league_key', 'league_name', 'season'
@@ -307,7 +343,6 @@ def load_todays_fixtures():
     """Load today's fixtures with error handling."""
     try:
         fixtures = pd.read_csv(DATA_DIR / "fixtures_data.csv")
-        # Normalize date column name to 'Date'
         if 'Date' in fixtures.columns:
             fixtures['Date'] = pd.to_datetime(fixtures['Date'], errors='coerce')
         elif 'date' in fixtures.columns:
@@ -321,14 +356,12 @@ def load_todays_fixtures():
         return todays_fixtures
     except Exception as e:
         print(f"❌ Failed to load fixtures: {e}")
-        traceback.print_exc()
         return pd.DataFrame()
 
 # -------------------
-# Time parsing & formatting
+# Prediction Functions
 # -------------------
 def parse_match_datetime(row):
-    """Parse match date + time into UTC datetime."""
     if pd.isna(row.get('time')) or row.get('time') in ['', 'TBD', None]:
         return pd.NaT
     try:
@@ -338,74 +371,30 @@ def parse_match_datetime(row):
         return pd.NaT
 
 def format_times_for_message(match_utc):
-    """Return formatted UTC and EAT times."""
     if pd.isna(match_utc):
         return "TBD", "TBD"
     utc_time = match_utc.tz_convert('UTC').strftime('%H:%M UTC')
     local_time = match_utc.tz_convert('Africa/Nairobi').strftime('%H:%M EAT')
     return utc_time, local_time
 
-# -------------------
-# Next-tier helper (ADDED)
-# -------------------
-def next_tier_start(now: datetime):
-    """
-    Given a Nairobi-localized datetime `now`, return (next_start_dt, tier_label).
-    next_start_dt is timezone-aware (Africa/Nairobi).
-    Tiers start at 08:00, 12:00, 16:00 Nairobi.
-    If `now` is before a tier start the same day, return that; otherwise return next day's Tier 1 start.
-    """
-    tz = pytz.timezone('Africa/Nairobi')
-    if now.tzinfo is None:
-        now = tz.localize(now)
-    else:
-        now = now.astimezone(tz)
-
-    today = now.date()
-
-    tier_starts = [
-        (datetime.combine(today, datetime.min.time()).replace(hour=8, minute=0, tzinfo=tz), "Tier 1 (No-time)"),
-        (datetime.combine(today, datetime.min.time()).replace(hour=12, minute=0, tzinfo=tz), "Tier 2 (Daytime)"),
-        (datetime.combine(today, datetime.min.time()).replace(hour=16, minute=0, tzinfo=tz), "Tier 3 (Evening)"),
-    ]
-
-    for start_dt, label in tier_starts:
-        if now < start_dt:
-            return start_dt, label
-
-    # If we're past today's last tier, return tomorrow's Tier 1
-    tomorrow = today + timedelta(days=1)
-    next_start = datetime.combine(tomorrow, datetime.min.time()).replace(hour=8, minute=0, tzinfo=tz)
-    return next_start, "Tier 1 (No-time)"
-
-# -------------------
-# Prediction log helpers (robust)
-# -------------------
 def has_been_predicted(home, away, date_str):
-    """Check if match already predicted — handles missing/wrong columns."""
     if not PREDICTION_LOG.exists():
         return False
-
     try:
         log_df = pd.read_csv(PREDICTION_LOG)
-
         required_cols = {'home_team', 'away_team', 'date'}
         if not required_cols.issubset(set(log_df.columns)):
-            print("⚠️  Prediction log missing required columns — backing up and resetting log")
             backup_prediction_log()
             try:
                 PREDICTION_LOG.unlink()
             except Exception:
                 pass
             return False
-
         return ((log_df['home_team'] == home) &
                 (log_df['away_team'] == away) &
                 (log_df['date'] == date_str)).any()
-
     except Exception as e:
-        print(f"⚠️  Prediction log corrupted or unreadable — backing up and resetting: {e}")
-        traceback.print_exc()
+        print(f"⚠️  Prediction log corrupted: {e}")
         backup_prediction_log()
         try:
             PREDICTION_LOG.unlink()
@@ -414,25 +403,17 @@ def has_been_predicted(home, away, date_str):
         return False
 
 def log_prediction(home, away, date_str):
-    """Log predicted match — ensures correct header."""
     log_entry = pd.DataFrame([{
         'home_team': home,
         'away_team': away,
         'date': date_str
     }])
-
-    # Always write with header if file doesn't exist
     if not PREDICTION_LOG.exists():
         log_entry.to_csv(PREDICTION_LOG, index=False)
     else:
-        # Append without header
         log_entry.to_csv(PREDICTION_LOG, mode='a', header=False, index=False)
 
-# -------------------
-# Model helpers and predictions
-# -------------------
 def get_market_baseline(my_prob, value_map):
-    """Get historical market probability."""
     bins = np.arange(0, 1.05, 0.05)
     bin_idx = np.digitize([my_prob], bins) - 1
     if bin_idx[0] >= len(bins) - 1:
@@ -441,29 +422,14 @@ def get_market_baseline(my_prob, value_map):
     return value_map.get(bin_key, my_prob)
 
 def should_send_tip(hda_proba, gg_proba, over25_proba, edge):
-    """
-    Determine if match qualifies as a high-confidence tip.
-    Only send if at least one market shows strong signal.
-    """
     home_win, draw, away_win = hda_proba
-
-    # HDA: Clear favorite
     hda_clear = (home_win >= 0.58) or (away_win >= 0.58) or (draw >= 0.38)
-
-    # GG: Decisive probability
     gg_clear = (gg_proba >= 0.68) or (gg_proba <= 0.32)
-
-    # Over/Under: Decisive probability
     ou_clear = (over25_proba >= 0.68) or (over25_proba <= 0.32)
-
-    # Value edge is strong
     strong_edge = edge >= 0.04
-
-    # Send if any condition is met
     return hda_clear or gg_clear or ou_clear or strong_edge
 
 def build_prediction_message(match_row, historical_df):
-    """Build a rich, high-confidence Telegram prediction message. Returns None if low-confidence."""
     if not MODELS:
         return "🔧 Models not available - predictions temporarily disabled"
 
@@ -472,7 +438,6 @@ def build_prediction_message(match_row, historical_df):
     match_date = match_row['Date']
     league_name = match_row.get('league_name', 'Unknown League')
 
-    # Compute features using only historical data
     features = compute_match_features(
         historical_df=historical_df,
         home_team=home,
@@ -481,34 +446,27 @@ def build_prediction_message(match_row, historical_df):
         league_code=match_row.get('league_code', 'E0')
     )
 
-    # Create X and ensure expected columns are present (fill missing with 0)
     X_raw = pd.DataFrame([features]) if isinstance(features, dict) else pd.DataFrame([features])
     try:
         X = X_raw.reindex(columns=MODELS['feature_cols'], fill_value=0)
     except Exception:
-        # If feature_cols missing or any issue, try to use X_raw directly (fall back)
         X = X_raw.copy()
 
-    # Get predictions
     try:
         hda_proba = MODELS['hda'].predict_proba(X)[0]
         gg_proba = MODELS['gg'].predict_proba(X)[0][1]
         over25_proba = MODELS['over25'].predict_proba(X)[0][1]
     except Exception as e:
         print(f"❌ Model prediction error: {e}")
-        traceback.print_exc()
         return None
 
-    # Calculate value edge vs historical market baseline
     home_win_prob = hda_proba[0]
     market_baseline = get_market_baseline(home_win_prob, MODELS.get('value_map', {}))
     edge = home_win_prob - market_baseline
 
-    # Apply tip filtering: only send high-confidence signals
     if not should_send_tip(hda_proba, gg_proba, over25_proba, edge):
         return None
 
-    # Determine best tip label
     home_win, draw, away_win = hda_proba
     best_tip = ""
 
@@ -529,12 +487,10 @@ def build_prediction_message(match_row, historical_df):
     else:
         best_tip = "💡 Mixed Signals"
 
-    # Format kickoff time
     match_utc = parse_match_datetime(match_row)
     utc_str, local_str = format_times_for_message(match_utc)
     time_str = f"🕒Kickoff: {utc_str} | {local_str}" if not pd.isna(match_utc) else "🕒 Kickoff: TBD (today | tomorrow)"
 
-    # Build final message
     separator = "─" * 30
     message = (
         f"📌*TIP ALERT*\n"
@@ -547,7 +503,6 @@ def build_prediction_message(match_row, historical_df):
         f"📈Over 2.5 Goals: {over25_proba:.0%}\n"
     )
 
-    # Add value alert if edge is strong (≥2%)
     if edge > 0.02:
         message += (
             f"\n`" + "─" * 20 + "`\n"
@@ -556,334 +511,181 @@ def build_prediction_message(match_row, historical_df):
             f"➡️ {edge:+.0%} *edge (Our Model vs Historical Average)*\n"
         )
 
-    # Responsible gambling footer
     message += (f"{separator}\n"
                 f"💡 Bet responsibly || scoresignal")
 
     return message
 
-def extract_hda_probabilities(match_row, historical_df):
-    """Safely extract HDA probabilities for LLM summary."""
-    try:
-        home = match_row['home_team']
-        away = match_row['away_team']
-        match_date = match_row['Date']
-
-        features = compute_match_features(
-            historical_df=historical_df,
-            home_team=home,
-            away_team=away,
-            match_date=match_date,
-            league_code=match_row.get('league_code', 'E0')
-        )
-        X_raw = pd.DataFrame([features])
-        X = X_raw.reindex(columns=MODELS['feature_cols'], fill_value=0)
-        return MODELS['hda'].predict_proba(X)[0]
-    except Exception as e:
-        print(f"⚠️  Could not extract probabilities: {e}")
-        return [0.33, 0.33, 0.33]
-
-def extract_best_tip_label(match_row, historical_df):
-    """Extract best tip label for LLM summary."""
-    try:
-        hda_proba = extract_hda_probabilities(match_row, historical_df)
-        home_win, draw, away_win = hda_proba
-
-        if home_win >= 0.55:
-            return "Strong Home Favorite"
-        elif away_win >= 0.55:
-            return "Strong Away Win"
-        elif draw >= 0.40:
-            return "High Draw Probability"
-        else:
-            # Get secondary markets
-            features = compute_match_features(
-                historical_df=historical_df,
-                home_team=match_row['home_team'],
-                away_team=match_row['away_team'],
-                match_date=match_row['Date'],
-                league_code=match_row.get('league_code', 'E0')
-            )
-            X_raw = pd.DataFrame([features])
-            X = X_raw.reindex(columns=MODELS['feature_cols'], fill_value=0)
-            gg_proba = MODELS['gg'].predict_proba(X)[0][1]
-            over25_proba = MODELS['over25'].predict_proba(X)[0][1]
-
-            if gg_proba >= 0.65:
-                return "Both Teams to Score"
-            elif gg_proba <= 0.35:
-                return "No Goals Expected"
-            elif over25_proba >= 0.65:
-                return "Over 2.5 Goals"
-            elif over25_proba <= 0.35:
-                return "Under 2.5 Goals"
-            else:
-                return "Mixed Signals"
-    except Exception as e:
-        print(f"⚠️  Could not extract best tip: {e}")
-        return "Mixed Signals"
-
-# -------------------
-# Run predictions per tier
-# -------------------
-def run_prediction_tier(tier_name, fixtures_subset, historical_df, collect_for_summary=False):
+def run_predictions_for_time_window(fixtures, historical_df, run_type):
     """
-    Run prediction for a specific tier.
+    Run predictions for specific time windows based on run_type
+    - morning: all fixtures up to 4 PM
+    - afternoon: all fixtures after 4 PM
     """
-    if not MODELS:
-        print("⏭️  Skipping predictions - models not loaded")
-        return []
-
-    if fixtures_subset.empty:
-        print(f"⏭️  No matches for {tier_name}")
+    if run_type == 'morning':
+        # Morning run: fixtures up to 4 PM
+        target_fixtures = fixtures[
+            (fixtures['time'].notna()) & 
+            (fixtures['time'] != '') & 
+            (fixtures['time'] != 'TBD') &
+            (pd.to_datetime(fixtures['time'], format='%H:%M', errors='coerce').dt.hour < 16)
+        ]
+        print(f"🌅 Morning run: processing {len(target_fixtures)} fixtures (before 4 PM)")
+    
+    else:  # afternoon
+        # Afternoon run: fixtures from 4 PM onwards
+        target_fixtures = fixtures[
+            (fixtures['time'].notna()) & 
+            (fixtures['time'] != '') & 
+            (fixtures['time'] != 'TBD') &
+            (pd.to_datetime(fixtures['time'], format='%H:%M', errors='coerce').dt.hour >= 16)
+        ]
+        print(f"🌇 Afternoon run: processing {len(target_fixtures)} fixtures (4 PM and later)")
+    
+    if target_fixtures.empty:
+        print(f"⏭️  No fixtures for {run_type} run")
         return []
 
     sent_tips = []
-    print(f"🎯 Processing {len(fixtures_subset)} matches for {tier_name}...")
-
-    for _, match in fixtures_subset.iterrows():
+    for _, match in target_fixtures.iterrows():
         home = match['home_team']
         away = match['away_team']
         date_str = match['Date'].strftime('%Y-%m-%d')
 
-        # Skip if already predicted
         if has_been_predicted(home, away, date_str):
             print(f"⏭️  Skipped (already predicted): {home} vs {away}")
             continue
 
         try:
             message = build_prediction_message(match, historical_df)
-
-            # Skip low-confidence tips or model errors
             if message is None or "Models not available" in message:
-                print(f"⏭️  Skipped (low confidence or model issue): {home} vs {away}")
+                print(f"⏭️  Skipped (low confidence): {home} vs {away}")
                 continue
 
-            # Send to Telegram
-            try:
-                send_telegram_message(message)
-                # Backup prediction log before modifying (not on every append to reduce I/O,
-                # but do it here to ensure a copy exists before we add new line)
-                backup_prediction_log()
-                log_prediction(home, away, date_str)
-                print(f"✅ Sent prediction: {home} vs {away}")
+            send_telegram_message(message)
+            backup_prediction_log()
+            log_prediction(home, away, date_str)
+            print(f"✅ Sent prediction: {home} vs {away}")
+            
+            sent_tips.append({
+                'home': home,
+                'away': away,
+                'league': match.get('league_name', 'Unknown League')
+            })
 
-                # Collect tip data for LLM summary if requested
-                if collect_for_summary:
-                    hda_proba = extract_hda_probabilities(match, historical_df)
-                    if hda_proba is not None:
-                        sent_tips.append({
-                            'home': home,
-                            'away': away,
-                            'league': match.get('league_name', 'Unknown League'),
-                            'best_tip': extract_best_tip_label(match, historical_df),
-                            'home_prob': hda_proba[0],
-                            'draw_prob': hda_proba[1],
-                            'away_prob': hda_proba[2]
-                        })
-
-            except Exception as telegram_error:
-                print(f"❌ Telegram API error for {home} vs {away}: {telegram_error}")
-
-            # Be kind to APIs
             time.sleep(0.5)
 
         except Exception as e:
             print(f"❌ Error predicting {home} vs {away}: {e}")
-            traceback.print_exc()
             continue
 
-    print(f"📊 {len(sent_tips)} tips collected for {tier_name}")
+    print(f"📊 {len(sent_tips)} tips sent for {run_type} run")
     return sent_tips
 
 # -------------------
-# Main entrypoint
+# Main Execution Logic
 # -------------------
-last_tier = None
-
-def is_tier_window(current_hour: int):
-    """Return the tier name if current_hour falls into a tier window, else None."""
-    if 8 <= current_hour <= 10:
-        return "Tier 1 (No-time)"
-    if 12 <= current_hour <= 14:
-        return "Tier 2 (Daytime)"
-    if 16 <= current_hour <= 18:
-        return "Tier 3 (Evening)"
-    return None
-
-def reset_daily_flag_if_new_day():
-    """Remove DAILY_FLAG if its date is older than today (so it resets each day)."""
-    if DAILY_FLAG.exists():
-        try:
-            ts = datetime.fromtimestamp(DAILY_FLAG.stat().st_mtime).date()
-            if ts < datetime.now().date():
-                DAILY_FLAG.unlink()
-        except Exception:
-            try:
-                DAILY_FLAG.unlink()
-            except Exception:
-                pass
-
 def main():
-    # Ensure DB table exists before anything else
-    try:
-        ensure_table()
-    except Exception as e:
-        print(f"⚠️  Database initialization failed (continuing): {e}")
-        # Don't crash — predictions can still run, just won't send to chats
-        # (Telegram messages will fail gracefully in send_telegram_message)
-    global last_tier
-
-    # Informational run check
-    should_run_now()
-
-    # Ensure directories exist (safe)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    PREDICTION_LOG_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Reset daily flag at new day
-    reset_daily_flag_if_new_day()
-
-    # Backup prediction log at start (light operation)
-    backup_prediction_log()
-
-    # Ensure historical data is available (weekly)
-    historical_ready = ensure_historical_data_exists()
-
-    # Safely fetch fixtures (weekly)
-    fixtures_fetched = safe_fetch_fixtures()
-    if not fixtures_fetched:
-        print("❌ Could not fetch fixtures - continuing with fallback (may be empty)")
-
-    # Determine current Nairobi time and tier
-    now = get_now_nairobi()
-    current_hour = now.hour
-    print(f"🕒 Current Nairobi time: {now.strftime('%Y-%m-%d %H:%M')}")
-    tier_name = is_tier_window(current_hour)
-
-    # If not in tier window, do nothing (no Telegram messages)
-    if not tier_name:
-        print("⏸ Outside tier window — no Telegram messages will be sent.")
+    # Acquire execution lock first to prevent duplicate runs
+    if not acquire_execution_lock():
         return
-
-    # Load data (historical and today's fixtures)
-    if historical_ready:
-        historical_df = load_historical_data()
-        if historical_df.empty:
-            print("⚠️  Historical data loaded but empty - predictions may be limited")
-            historical_df = pd.DataFrame()
-    else:
-        print("⚠️  Historical data not available - using empty DataFrame for predictions")
-        historical_df = pd.DataFrame()
-
-    fixtures = load_todays_fixtures()
-
-    # If there are absolutely no fixtures for today:
-    if fixtures.empty:
-        # Only the first tier of the day should send the "see you tomorrow" message
-        if not DAILY_FLAG.exists() and tier_name.startswith("Tier 1"):
-            print("📭 No fixtures today — sending single 'see you tomorrow' message (first tier only).")
-            # Build header and message
-            header = (
-                "*scoresignal* curates fixtures from over *15 major European leagues*, leveraging over a decade of data "
-                "and advanced machine learning models to deliver probabilistic football insights.\n\n"
-                "`" + ("─" * 30) + "`\n\n"
-                "🙏 Thank you for your support. *MPESA TILL:* `9105695`\n"
-                "*scoresignal* • *Data-driven football tips* • *Bet responsibly*"
-            )
-            try:
-                send_telegram_message(header)
-                send_telegram_message("📭 No matches scheduled for today — see you tomorrow!")
-                # mark that we've notified for the day
-                DAILY_FLAG.touch()
-            except Exception as e:
-                print(f"⚠️ Could not send 'no matches today' message: {e}")
-            return
-        else:
-            # Either not first tier or already notified; do nothing
-            print("📭 No fixtures today and already notified (or this is not first tier) — skipping messaging.")
-            return
-
-    # There are fixtures today — proceed to categorize and run predictions for the active tier
-    no_time = fixtures[pd.isna(fixtures.get('time')) | (fixtures.get('time') == '') | (fixtures.get('time') == 'TBD')]
-    daytime = fixtures[
-        (fixtures.get('time').notna()) &
-        (fixtures.get('time') != '') &
-        (fixtures.get('time') != 'TBD') &
-        (pd.to_datetime(fixtures['time'], format='%H:%M', errors='coerce').dt.hour.between(12, 18))
-    ]
-    evening = fixtures[
-        (fixtures.get('time').notna()) &
-        (fixtures.get('time') != '') &
-        (fixtures.get('time') != 'TBD') &
-        (pd.to_datetime(fixtures['time'], format='%H:%M', errors='coerce').dt.hour >= 19)
-    ]
-
-    # Send header for this tier (always during tier window)
-    header = (
-        "*scoresignal* curates fixtures from over *15 major European leagues*, leveraging over a decade of data "
-        "and advanced machine learning models to deliver probabilistic football insights.\n\n"
-        "`" + ("─" * 30) + "`\n\n"
-        "🙏 Thank you for your support. *MPESA TILL:* `9105695`\n"
-        "*scoresignal* • *Data-driven football tips*• *Bet responsibly*"
-    )
+    
     try:
+        # Check if we should run based on schedule
+        should_run, run_type = should_run_tips()
+        if not should_run:
+            print(f"⏸️ Not in scheduled run window (current Nairobi time: {get_now_nairobi().strftime('%H:%M')})")
+            return
+
+        print(f"🎯 Starting {run_type} run at {get_now_nairobi().strftime('%Y-%m-%d %H:%M')} Nairobi time")
+
+        # Initialize database with robust error handling
+        try:
+            ensure_table()
+            print("✅ Database initialized successfully")
+        except Exception as e:
+            print(f"⚠️  Database initialization failed: {e}")
+            # Don't crash - continue without database functionality
+            # Database is only for chat management, not critical for predictions
+
+        # Reset daily flag for new day
+        reset_daily_flag_if_new_day()
+
+        # Backup prediction log
+        backup_prediction_log()
+
+        # Ensure historical data is available (weekly)
+        historical_ready = ensure_historical_data_exists()
+
+        # Fetch fixtures if needed
+        fixtures_fetched = safe_fetch_fixtures()
+        if not fixtures_fetched:
+            print("❌ Could not fetch fixtures - continuing with fallback")
+
+        # Load today's fixtures
+        fixtures = load_todays_fixtures()
+
+        # Send header
+        header = (
+            "*scoresignal* curates fixtures from over *15 major European leagues*, leveraging over a decade of data "
+            "and advanced machine learning models to deliver probabilistic football insights.\n\n"
+            "`" + ("─" * 30) + "`\n\n"
+            "🙏 Thank you for your support. *MPESA TILL:* `9105695`\n"
+            "*scoresignal* • *Data-driven football tips* • *Bet responsibly*"
+        )
         send_telegram_message(header)
-    except Exception as e:
-        print(f"⚠️ Could not send header message: {e}")
 
-    all_sent_tips = []
+        # Handle no fixtures case
+        if fixtures.empty:
+            if not DAILY_FLAG.exists():
+                print("📭 No fixtures today — sending 'see you tomorrow' message")
+                send_telegram_message("📭 No matches scheduled for today — see you tomorrow!")
+                DAILY_FLAG.touch()
+            else:
+                print("📭 No fixtures today (already notified)")
+            return
 
-    # Tier-specific execution
-    if tier_name.startswith("Tier 1"):
-        print("🕐 Running Tier 1: No-time matches")
-        all_sent_tips.extend(run_prediction_tier(tier_name, no_time, historical_df, collect_for_summary=True))
-        last_tier = tier_name
+        # Load historical data for predictions
+        historical_df = load_historical_data()
 
-    elif tier_name.startswith("Tier 2"):
-        print("🕐 Running Tier 2: Daytime matches (12–18)")
-        all_sent_tips.extend(run_prediction_tier(tier_name, daytime, historical_df, collect_for_summary=True))
-        last_tier = tier_name
+        # Run predictions for the appropriate time window
+        sent_tips = run_predictions_for_time_window(fixtures, historical_df, run_type)
 
-    elif tier_name.startswith("Tier 3"):
-        print("🕐 Running Tier 3: Evening matches (19+)")
-        all_sent_tips.extend(run_prediction_tier(tier_name, evening, historical_df, collect_for_summary=True))
-        last_tier = tier_name
+        # Handle results
+        if sent_tips:
+            try:
+                print("🧠 Generating LLM summary...")
+                summary = generate_daily_summary(sent_tips)
+                summary_message = create_summary_message(summary)
+                send_telegram_message(summary_message)
+                print("✅ LLM summary sent!")
+            except Exception as e:
+                print(f"❌ LLM summary failed: {e}")
+        else:
+            # No tips found
+            if run_type == 'morning':
+                next_run = "4 PM today" if datetime.now().weekday() >= 5 else "tomorrow at 10 AM"
+            else:  # afternoon
+                next_run = "tomorrow at 10 AM"
+            
+            message = f"📭 No high-confidence tips found in our {run_type} scan.\n\n⏭️ Next predictions: {next_run}"
+            send_telegram_message(message)
+            print(message)
 
-    # If we have tips, send summary
-    if all_sent_tips:
-        try:
-            print("🧠 Generating LLM summary...")
-            summary = generate_daily_summary(all_sent_tips)
-            summary_message = create_summary_message(summary)
-            send_telegram_message(summary_message)
-            print("✅ LLM summary sent!")
-        except Exception as e:
-            print(f"❌ LLM summary failed (continuing): {e}")
-            traceback.print_exc()
-    else:
-        # No tips found for this tier — inform subscribers (we already sent header)
-        try:
-            # Use our next_tier_start helper to give a specific next tier start/time
-            next_start_dt, next_tier_label = next_tier_start(now)
-            msg = (
-                f"📭 In our {tier_name} scan we didn't find high-confidence tips.\n\n"
-                f"⏭️ Next predictions will be sent at: {format_time(next_start_dt)} ({next_tier_label})"
-            )
-            send_telegram_message(msg)
-            print(msg)
-        except Exception as e:
-            print(f"⚠️ Could not send 'no tips in tier' message: {e}")
-            traceback.print_exc()
-
-    # If we reached here and we've completed Tier 1 (whether tips or not) and there were fixtures,
-    # mark DAILY_FLAG so that the special 'no matches today' message won't be sent later again.
-    try:
-        if tier_name.startswith("Tier 1"):
+        # Mark as notified for the day
+        if run_type == 'morning':
             DAILY_FLAG.touch()
-    except Exception:
-        pass
+
+    except Exception as e:
+        print(f"💥 Critical error in main: {e}")
+        traceback.print_exc()
+        try:
+            send_telegram_message(f"🚨 Bot crashed: {str(e)[:100]}...")
+        except Exception:
+            pass
+    finally:
+        # Release lock
+        release_execution_lock()
 
 if __name__ == "__main__":
     try:
@@ -891,7 +693,8 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"💥 Critical error in main: {e}")
         traceback.print_exc()
-        # Try to send error notification
+        # Release lock even on crash
+        release_execution_lock()
         try:
             send_telegram_message(f"🚨 Bot crashed: {str(e)[:100]}...")
         except Exception:

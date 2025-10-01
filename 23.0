@@ -1,0 +1,6 @@
+Collecting gunicorn
+  Downloading gunicorn-23.0.0-py3-none-any.whl.metadata (4.4 kB)
+Requirement already satisfied: packaging in c:\users\bkangethe\appdata\local\miniforge3\envs\jupyter_env\lib\site-packages (from gunicorn) (24.2)
+Downloading gunicorn-23.0.0-py3-none-any.whl (85 kB)
+Installing collected packages: gunicorn
+Successfully installed gunicorn-23.0.0
