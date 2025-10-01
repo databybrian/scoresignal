@@ -641,6 +641,58 @@ def run_predictions_for_time_window(fixtures, historical_df, run_type):
     return sent_tips
 
 # -------------------
+# Dynamic Header Creation
+# -------------------
+def create_dynamic_header(sent_tips, fixtures, run_type):
+    """
+    Create a dynamic header message based on prediction results
+    """
+    nairobi_tz = pytz.timezone('Africa/Nairobi')
+    now = datetime.now(nairobi_tz)
+    current_weekday = now.weekday()
+    is_weekday = current_weekday < 5
+    
+    # Determine the prediction context
+    if fixtures.empty:
+        result_context = "found *no fixtures* scheduled for today, stay tuned"
+    elif not sent_tips:
+        result_context = "found *no high-confidence tips* in our analysis, hang tight"
+    else:
+        tip_word = "tip" if len(sent_tips) == 1 else "tips"
+        result_context = f"found *{len(sent_tips)} high-confidence {tip_word}*, check them out below"
+    
+    # Determine run context
+    if is_weekday:
+        run_context = "single daily analysis"
+    else:
+        if run_type == 'morning':
+            run_context = "morning analysis (matches until 5 PM)"
+        else:
+            run_context = "afternoon analysis (matches after 5 PM)"
+    
+    header = (
+        "*SCORESIGNAL FOOTBALL PREDICTIONS*\n\n"
+        
+        "*How It Works:*\n"
+        "We analyze fixtures from *15+ European leagues* using machine learning "
+        "models trained on a *decade of historical data*.\n\n"
+        
+        "*Today's Results:*\n"
+        f"In our {run_context}, we {result_context}.\n\n"
+        
+        "*Our Approach:*\n"
+        "• Evidence-based probabilistic insights\n"
+        "• High-confidence tips only\n" 
+        "• Rigorous, data-driven analysis\n"
+        "• No noise, no unrealistic promises\n\n"
+        
+        "`──────────────────────────────`\n"
+        "*Support Our Work:* MPESA TILL *`9105695`*\n"
+        "*scoresignal* •  *ML-Powered Tips* •  *Bet Responsibly*"
+    )
+    
+    return header
+# -------------------
 # Main Execution Logic
 # -------------------
 def main():
@@ -683,25 +735,30 @@ def main():
         # Load today's fixtures
         fixtures = load_todays_fixtures()
 
-        # Send header
-        header = (
-            "*scoresignal* curates fixtures from over *15 major European leagues*, leveraging over a decade of data "
-            "and advanced machine learning models to deliver probabilistic football insights.\n\n"
-            "`──────────────────────────────`\n"
-            "🙏 Thank you for your support. *MPESA TILL:* `9105695`\n"
-            "*scoresignal* • *Data-driven football tips* • *Bet responsibly*"
-        )
-        send_telegram_message(header)
-
-        # Handle no fixtures case
+        # Handle no fixtures case FIRST (before sending header)
         if fixtures.empty:
             if not DAILY_FLAG.exists():
-                print("📭 No fixtures today — sending 'see you tomorrow' message")
-                send_telegram_message("📭 No matches scheduled for today — see you tomorrow!")
+                print("📭 No fixtures today — sending notification")
+                # Create header for no fixtures scenario
+                header = create_dynamic_header([], fixtures, run_type)
+                send_telegram_message(header)
+                
+                # Additional no fixtures message
+                no_fixtures_msg = (
+                    "😴 *No Matches Today*\n\n"
+                    "There are no fixtures scheduled for today in our curated leagues. "
+                    "We'll be back tomorrow with fresh predictions!\n\n"
+                    "🏃‍♂️ *See you tomorrow!*"
+                )
+                send_telegram_message(no_fixtures_msg)
                 DAILY_FLAG.touch()
             else:
                 print("📭 No fixtures today (already notified)")
             return
+
+        # Send initial header (before predictions, so we don't know results yet)
+        initial_header = create_dynamic_header([], fixtures, run_type)
+        send_telegram_message(initial_header)
 
         # Load historical data for predictions
         historical_df = load_historical_data()
@@ -709,7 +766,7 @@ def main():
         # Run predictions for the appropriate time window
         sent_tips = run_predictions_for_time_window(fixtures, historical_df, run_type)
 
-        # Handle results
+        # Handle results with appropriate messaging
         if sent_tips:
             try:
                 print("🧠 Generating LLM summary...")
@@ -720,15 +777,30 @@ def main():
             except Exception as e:
                 print(f"❌ LLM summary failed: {e}")
         else:
-            # No tips found
-            if run_type == 'morning':
-                next_run = "4 PM today" if datetime.now().weekday() >= 5 else "tomorrow at 10 AM"
-            else:  # afternoon
-                next_run = "tomorrow at 10 AM"
-            
-            message = f"📭 No high-confidence tips found in our {run_type} scan.\n\n⏭️ Next predictions: {next_run}"
-            send_telegram_message(message)
-            print(message)
+            # No tips found - send appropriate message
+            if not fixtures.empty:  # Only send if there were fixtures but no tips
+                no_tips_message = (
+                    "🔍 *Analysis Complete*\n\n"
+                    "We've analyzed today's fixtures but didn't find any matches "
+                    "meeting our *high-confidence thresholds*.\n\n"
+                    "💡 *Why this happens:*\n"
+                    "• Matches are too evenly balanced\n" 
+                    "• Insufficient historical data\n"
+                    "• Probabilities below our confidence levels\n\n"
+                    
+                    "🔄 *What's Next:*\n"
+                )
+                
+                # Add next run time based on day and current run
+                if run_type == 'morning':
+                    next_run = "4 PM today" if datetime.now().weekday() >= 5 else "tomorrow at 10 AM"
+                else:  # afternoon
+                    next_run = "tomorrow at 10 AM"
+                
+                no_tips_message += f"Next predictions will be sent at *{next_run}* Nairobi time"
+                
+                send_telegram_message(no_tips_message)
+                print("📭 No high-confidence tips found")
 
         # Mark as notified for the day
         if run_type == 'morning':
