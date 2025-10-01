@@ -119,8 +119,8 @@ def should_run_tips():
     current_weekday = now.weekday()  # 0=Monday, 6=Sunday
     
     # Define time windows (15-minute windows)
-    morning_window_start = time(12, 0)   # 10:00 AM
-    morning_window_end = time(12, 15)    # 10:15 AM
+    morning_window_start = time(10, 0)   # 10:00 AM
+    morning_window_end = time(10, 15)    # 10:15 AM
     
     afternoon_window_start = time(16, 0) # 4:00 PM  
     afternoon_window_end = time(16, 15)  # 4:15 PM
@@ -516,68 +516,126 @@ def build_prediction_message(match_row, historical_df):
 
     return message
 
-def run_predictions_for_time_window(fixtures, historical_df, run_type):
+# -------------------
+# Weekday vs Weekend Logic
+# ------------------
+def _get_target_fixtures_for_window(fixtures, run_type, is_weekday):
     """
-    Run predictions for specific time windows based on run_type
-    - morning: all fixtures up to 4 PM
-    - afternoon: all fixtures after 4 PM
+    Determine which fixtures to process based on run type and day type
     """
     if run_type == 'morning':
-        # Morning run: fixtures up to 4 PM
-        target_fixtures = fixtures[
-            (fixtures['time'].notna()) & 
-            (fixtures['time'] != '') & 
-            (fixtures['time'] != 'TBD') &
-            (pd.to_datetime(fixtures['time'], format='%H:%M', errors='coerce').dt.hour < 16)
-        ]
-        print(f"🌅 Morning run: processing {len(target_fixtures)} fixtures (before 4 PM)")
+        if is_weekday:
+            # WEEKDAYS: Process ALL fixtures in morning run
+            target_fixtures = fixtures.copy()
+            print(f"🌅 Weekday morning run: processing {len(target_fixtures)} fixtures (ALL matches)")
+        else:
+            # WEEKENDS: Process fixtures up to 5 PM + all no-time matches
+            target_fixtures = _get_weekend_morning_fixtures(fixtures)
+    else:  # afternoon (weekends only)
+        # WEEKENDS ONLY: Process fixtures from 5 PM onwards
+        target_fixtures = _get_weekend_afternoon_fixtures(fixtures)
     
-    else:  # afternoon
-        # Afternoon run: fixtures from 4 PM onwards
-        target_fixtures = fixtures[
-            (fixtures['time'].notna()) & 
-            (fixtures['time'] != '') & 
-            (fixtures['time'] != 'TBD') &
-            (pd.to_datetime(fixtures['time'], format='%H:%M', errors='coerce').dt.hour >= 16)
-        ]
-        print(f"🌇 Afternoon run: processing {len(target_fixtures)} fixtures (4 PM and later)")
+    return target_fixtures
+
+# -------------------
+# Weekend morning fixture filtering helper
+# ------------------
+def _get_weekend_morning_fixtures(fixtures):
+    """Get fixtures for weekend morning run (before 5 PM + no-time matches)"""
+    target_fixtures = fixtures[
+        # Include matches with valid times before 5 PM
+        ((fixtures['time'].notna()) & 
+         (fixtures['time'] != '') & 
+         (fixtures['time'] != 'TBD') &
+         (pd.to_datetime(fixtures['time'], format='%H:%M', errors='coerce').dt.hour <= 17)) |
+        # OR include matches with no time data
+        (fixtures['time'].isna() | 
+         (fixtures['time'] == '') | 
+         (fixtures['time'] == 'TBD'))
+    ]
+    print(f"🌅 Weekend morning run: processing {len(target_fixtures)} fixtures (before 5 PM + no-time matches)")
+    return target_fixtures
+
+# -------------------
+# Weekend afternoon fixture filtering helper
+# ------------------
+def _get_weekend_afternoon_fixtures(fixtures):
+    """Get fixtures for weekend afternoon run (after 5 PM only)"""
+    target_fixtures = fixtures[
+        (fixtures['time'].notna()) & 
+        (fixtures['time'] != '') & 
+        (fixtures['time'] != 'TBD') &
+        (pd.to_datetime(fixtures['time'], format='%H:%M', errors='coerce').dt.hour > 17)
+    ]
+    print(f"🌇 Weekend afternoon run: processing {len(target_fixtures)} fixtures (5 PM and later only)")
+    return target_fixtures
+
+# -------------------
+# Single match processing helper
+# ------------------
+def _process_single_match(match, historical_df):
+    """
+    Process a single match and return tip data if successful
+    """
+    home = match['home_team']
+    away = match['away_team']
+    date_str = match['Date'].strftime('%Y-%m-%d')
+
+    if has_been_predicted(home, away, date_str):
+        print(f"⏭️  Skipped (already predicted): {home} vs {away}")
+        return None
+
+    try:
+        message = build_prediction_message(match, historical_df)
+        if message is None or "Models not available" in message:
+            print(f"⏭️  Skipped (low confidence): {home} vs {away}")
+            return None
+
+        send_telegram_message(message)
+        backup_prediction_log()
+        log_prediction(home, away, date_str)
+        print(f"✅ Sent prediction: {home} vs {away}")
+        
+        return {
+            'home': home,
+            'away': away,
+            'league': match.get('league_name', 'Unknown League')
+        }
+
+    except Exception as e:
+        print(f"❌ Error predicting {home} vs {away}: {e}")
+        return None
+
+# -------------------
+# Run predictions for time window
+# ------------------
+def run_predictions_for_time_window(fixtures, historical_df, run_type):
+    """
+    Run predictions for specific time windows based on run_type and day type
+    - morning: all fixtures up to 5 PM + all no-time matches
+               (on weekdays: ALL fixtures regardless of time)
+    - afternoon: all fixtures after 5 PM only (weekends only)
+    """
+    # Determine day type
+    nairobi_tz = pytz.timezone('Africa/Nairobi')
+    now = datetime.now(nairobi_tz)
+    current_weekday = now.weekday()  # 0=Monday, 6=Sunday
+    is_weekday = current_weekday < 5  # Monday-Friday
+    
+    # Get appropriate fixtures for this run
+    target_fixtures = _get_target_fixtures_for_window(fixtures, run_type, is_weekday)
     
     if target_fixtures.empty:
         print(f"⏭️  No fixtures for {run_type} run")
         return []
 
+    # Process each match
     sent_tips = []
     for _, match in target_fixtures.iterrows():
-        home = match['home_team']
-        away = match['away_team']
-        date_str = match['Date'].strftime('%Y-%m-%d')
-
-        if has_been_predicted(home, away, date_str):
-            print(f"⏭️  Skipped (already predicted): {home} vs {away}")
-            continue
-
-        try:
-            message = build_prediction_message(match, historical_df)
-            if message is None or "Models not available" in message:
-                print(f"⏭️  Skipped (low confidence): {home} vs {away}")
-                continue
-
-            send_telegram_message(message)
-            backup_prediction_log()
-            log_prediction(home, away, date_str)
-            print(f"✅ Sent prediction: {home} vs {away}")
-            
-            sent_tips.append({
-                'home': home,
-                'away': away,
-                'league': match.get('league_name', 'Unknown League')
-            })
-
-            time.sleep(0.5)
-
-        except Exception as e:
-            print(f"❌ Error predicting {home} vs {away}: {e}")
-            continue
+        tip_data = _process_single_match(match, historical_df)
+        if tip_data:
+            sent_tips.append(tip_data)
+            time.sleep(0.5)  # Rate limiting
 
     print(f"📊 {len(sent_tips)} tips sent for {run_type} run")
     return sent_tips
@@ -629,7 +687,7 @@ def main():
         header = (
             "*scoresignal* curates fixtures from over *15 major European leagues*, leveraging over a decade of data "
             "and advanced machine learning models to deliver probabilistic football insights.\n\n"
-            "`" + ("─" * 30) + "`\n\n"
+            "`──────────────────────────────`\n"
             "🙏 Thank you for your support. *MPESA TILL:* `9105695`\n"
             "*scoresignal* • *Data-driven football tips* • *Bet responsibly*"
         )
