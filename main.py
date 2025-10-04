@@ -423,10 +423,10 @@ def get_market_baseline(my_prob, value_map):
 
 def should_send_tip(hda_proba, gg_proba, over25_proba, edge):
     home_win, draw, away_win = hda_proba
-    hda_clear = (home_win >= 0.58) or (away_win >= 0.58) or (draw >= 0.38)
-    gg_clear = (gg_proba >= 0.68) or (gg_proba <= 0.32)
-    ou_clear = (over25_proba >= 0.68) or (over25_proba <= 0.32)
-    strong_edge = edge >= 0.04
+    hda_clear = (home_win >= 0.48) or (away_win >= 0.48) or (draw >= 0.35)
+    gg_clear = (gg_proba >= 0.52) or (gg_proba <= 0.32)
+    ou_clear = (over25_proba >= 0.52) or (over25_proba <= 0.32)
+    strong_edge = edge >= 0.01
     return hda_clear or gg_clear or ou_clear or strong_edge
 
 def build_prediction_message(match_row, historical_df):
@@ -470,17 +470,17 @@ def build_prediction_message(match_row, historical_df):
     home_win, draw, away_win = hda_proba
     best_tip = ""
 
-    if home_win >= 0.55:
+    if home_win >= 0.52:
         best_tip = "🟢 HOME (Strong Home Favorite)"
-    elif away_win >= 0.55:
+    elif away_win >= 0.52:
         best_tip = "🔵 AWAY (Strong Away Win)"
-    elif draw >= 0.40:
+    elif draw >= 0.35:
         best_tip = "🟡 DRAW (High Draw Probability)"
-    elif gg_proba >= 0.65:
+    elif gg_proba >= 0.52:
         best_tip = "🟢 GG (Both Teams to Score)"
     elif gg_proba <= 0.35:
         best_tip = "🔴 NG (No Goals Expected)"
-    elif over25_proba >= 0.65:
+    elif over25_proba >= 0.52:
         best_tip = "🟢 OVER 2.5 (High-Scoring Game)"
     elif over25_proba <= 0.35:
         best_tip = "🔴 UNDER 2.5 (Low-Scoring Game)"
