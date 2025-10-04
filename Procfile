@@ -1,6 +1,6 @@
 worker: python main.py
 web: gunicorn bot.webhook_handler:app --bind 0.0.0.0:$PORT --workers 2
-web: sh setup.sh && streamlit run streamlit_app/app.py
+web: sh setup.sh && streamlit run streamlit/app.py
 
 
 
