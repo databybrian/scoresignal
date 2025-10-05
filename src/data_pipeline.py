@@ -1,4 +1,4 @@
-# src/data_pipeline.py
+# src/data_pipeline.py - FIXED VERSION
 """
 Shared data pipeline functions used by both main.py (worker) and Streamlit (dashboard).
 No side effects: no Telegram, no locks, no print-to-stdout (minimal).
@@ -118,17 +118,19 @@ def ensure_historical_data_exists(days: int = 7):
     return True
 
 # -------------------
-# League Table Builder (from table_builder.py)
+# League Table Builder (from table_builder.py) - FIXED
 # -------------------
 def build_league_table(
     df: pd.DataFrame,
     league_code: str,
     season: int = None,
     as_of_date: Optional[str] = None,
-    save_current: bool = False  # kept for compatibility, but unused here
+    save_current: bool = False
 ) -> pd.DataFrame:
     """
     Build league table for a specific league and season up to a given date.
+    
+    FIX: If no data exists for the specified season, fall back to the most recent season.
     """
     if season is None:
         season = get_current_season()
@@ -137,14 +139,30 @@ def build_league_table(
     if not pd.api.types.is_datetime64_any_dtype(df['Date']):
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
 
-    # Filter by BOTH league_code AND season
+    # Try the specified season first
     league_df = df[
         (df['league_code'] == league_code) &
         (df['season'] == season)
     ].copy()
 
+    # If no data for current season, fall back to most recent available
     if league_df.empty:
-        return pd.DataFrame(columns=['Team','P','W','D','L','GF','GA','GD','Pts','Form'])
+        # Get all data for this league
+        league_all = df[df['league_code'] == league_code].copy()
+        
+        if league_all.empty:
+            return pd.DataFrame(columns=['Team','P','W','D','L','GF','GA','GD','Pts','Form'])
+        
+        # Find most recent season with data
+        available_seasons = league_all['season'].dropna().unique()
+        if len(available_seasons) == 0:
+            return pd.DataFrame(columns=['Team','P','W','D','L','GF','GA','GD','Pts','Form'])
+        
+        most_recent_season = max(available_seasons)
+        league_df = league_all[league_all['season'] == most_recent_season].copy()
+        
+        # Log fallback (but don't print to avoid Railway logs)
+        # You could add logging here if needed
 
     # Handle as_of_date
     if as_of_date:
@@ -203,16 +221,29 @@ def build_league_table(
     return table_df
 
 # -------------------
-# Save All Current Tables
+# Save All Current Tables - FIXED
 # -------------------
 def save_all_current_tables():
     """
     Generate and save current_season_leagues_table.csv from cleaned historical data.
+    
+    FIX: Better error handling and debugging information.
     """
     if not CLEANED_FILE.exists():
         raise FileNotFoundError(f"Cleaned historical data not found: {CLEANED_FILE}")
 
+    #  Add validation
     df = pd.read_csv(CLEANED_FILE, parse_dates=['Date'])
+    
+    if df.empty:
+        raise RuntimeError("Cleaned historical data file is empty")
+    
+    # Check required columns
+    required_cols = ['country', 'league_code', 'league_name', 'season', 'Date', 
+                     'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise RuntimeError(f"Missing required columns in historical data: {missing_cols}")
 
     # Get unique leagues
     league_info = (
@@ -220,34 +251,55 @@ def save_all_current_tables():
         .dropna(subset=['country', 'league_code', 'league_name'])
         .drop_duplicates()
     )
+    
+    if league_info.empty:
+        raise RuntimeError("No league information found in historical data")
 
     season = get_current_season()
     all_tables = []
+    
+    # Track failures for debugging
+    failed_leagues = []
 
     for _, row in league_info.iterrows():
         league_code = row['league_code']
         league_name = row['league_name']
         country = row['country']
 
-        table_df = build_league_table(df, league_code, season)
+        try:
+            table_df = build_league_table(df, league_code, season)
 
-        if not table_df.empty:
-            table_df = table_df.copy()
-            table_df['country'] = country
-            table_df['league_code'] = league_code
-            table_df['league_name'] = league_name
-            table_df = table_df.reset_index()  # exposes 'Pos'
+            if not table_df.empty:
+                table_df = table_df.copy()
+                table_df['country'] = country
+                table_df['league_code'] = league_code
+                table_df['league_name'] = league_name
+                table_df = table_df.reset_index()  # exposes 'Pos'
 
-            cols = ['country', 'league_code', 'league_name', 'Pos', 'Team', 'P', 'W', 'D',
-                    'L', 'GF', 'GA', 'GD', 'Pts', 'Form']
-            cols = [c for c in cols if c in table_df.columns]
-            table_df = table_df[cols]
-            all_tables.append(table_df)
+                cols = ['country', 'league_code', 'league_name', 'Pos', 'Team', 'P', 'W', 'D',
+                        'L', 'GF', 'GA', 'GD', 'Pts', 'Form']
+                cols = [c for c in cols if c in table_df.columns]
+                table_df = table_df[cols]
+                all_tables.append(table_df)
+            else:
+                failed_leagues.append(f"{league_name} ({league_code})")
+        except Exception as e:
+            failed_leagues.append(f"{league_name} ({league_code}): {str(e)}")
 
     if all_tables:
         master_table = pd.concat(all_tables, ignore_index=True)
         master_table = master_table.sort_values(['league_name', 'Pos']).reset_index(drop=True)
         output_path = DATA_DIR / "current_season_leagues_table.csv"
         master_table.to_csv(output_path, index=False)
+        
+        # Return success info for debugging
+        return {
+            'success': True,
+            'leagues_generated': len(all_tables),
+            'failed_leagues': failed_leagues,
+            'output_path': str(output_path)
+        }
     else:
-        raise RuntimeError("No league tables were generated.")
+        # Provide detailed error message
+        error_msg = f"No league tables were generated. Failed leagues: {', '.join(failed_leagues) if failed_leagues else 'None found'}"
+        raise RuntimeError(error_msg)
