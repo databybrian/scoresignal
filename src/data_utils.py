@@ -2,6 +2,7 @@ import pandas as pd
 from pathlib import Path
 
 # Keep only essential columns
+current_season_int: int = 2526  
 essential_columns = [
     'country', 
     'league_name',

@@ -22,12 +22,11 @@ DATA_FILE = PROJECT_ROOT / "data" / "current_season_leagues_table.csv"
 
 sys.path.insert(0, str(PROJECT_ROOT))
 
-@st.cache_data
+@st.cache_data(ttl=3600)  # Cache for 1 hour to avoid repeated disk reads
 def load_data():
-    """Load and validate league table data."""
-    if not DATA_FILE.exists():
-        st.error(f"Data file not found: {DATA_FILE}")
-        st.stop()
+    """Load and validate league table data, ensuring it's fresh."""
+    # Ensure data exists and is up-to-date
+    ensure_league_data_fresh()
     
     df = pd.read_csv(DATA_FILE)
     required_cols = {'league_name', 'Pos', 'Team', 'P', 'W', 'D', 'L', 'GF', 'GA', 'GD', 'Pts', 'Form'}
@@ -37,6 +36,34 @@ def load_data():
         st.stop()
     
     return df
+
+def ensure_league_data_fresh():
+    """Ensure current_season_leagues_table.csv exists and is <=7 days old."""
+    DATA_DIR = PROJECT_ROOT / "data"
+    DATA_DIR.mkdir(exist_ok=True)  # Ensure data dir exists
+
+    if not DATA_FILE.exists():
+        st.info("📊 League data not found. Fetching fresh data...")
+        try:
+            from src.save_current_tables import save_all_current_tables 
+            save_all_current_tables()
+            st.success("✅ League data fetched and saved!")
+        except Exception as e:
+            st.error(f"❌ Failed to generate league data: {e}")
+            st.stop()
+        return
+
+    # Check if file is older than 7 days
+    file_mod_time = datetime.fromtimestamp(os.path.getmtime(DATA_FILE))
+    if datetime.now() - file_mod_time > timedelta(days=7):
+        st.info("🔄 League data is older than 7 days. Refreshing...")
+        try:
+            from src.save_current_tables import save_all_current_tables
+            save_all_current_tables()
+            st.success("✅ League data refreshed!")
+        except Exception as e:
+            st.warning(f"⚠️ Failed to refresh data (using stale data): {e}")
+        # Don't stop — allow stale data as fallback
 
 def extract_country_from_league(league_name):
     """Extract country name from league name."""
@@ -591,10 +618,10 @@ def prediction_tab():
             elif signal_count / len(upcoming) < 0.1:
                 st.warning("⚠️ **Insight**: Low signal rate detected. Markets may be efficient today.")
             elif signal_count / len(upcoming) > 0.3:
-                st.success("🎯 **Insight**: High signal rate! Multiple betting opportunities identified.")
+                st.success("**Insight**: High signal rate! Multiple betting opportunities identified.")
             
             # Display the predictions table
-            st.markdown("### 🎯 Match Predictions & Signals")
+            st.markdown("### Match Predictions & Signals")
             
             predictions_table = create_predictions_table(predictions)
             if predictions_table is not None:
@@ -672,6 +699,13 @@ def main():
                 available_leagues = sorted(df[df['country'] == selected_country]['league_name'].unique())
             
             selected_league = st.selectbox("Select League", available_leagues, index=0, key="standings_league")
+            if st.button("🔄 Force Refresh League Data", key="refresh_data"):
+                if DATA_FILE.exists():
+                    DATA_FILE.unlink()  # Delete to force regeneration
+                st.cache_data.clear()  # Clear Streamlit cache
+                st.rerun()
+        
+        league_df = df[df['league_name'] == selected_league].copy()
         
         league_df = df[df['league_name'] == selected_league].copy()
         league_df = league_df.sort_values('Pos').reset_index(drop=True)
@@ -736,7 +770,7 @@ def main():
     
     # Footer
     st.markdown("---")
-    st.caption("Data updated weekly | Source: football-data.co.uk | 🤖 AI-Powered Predictions")
+    st.caption("Data updated weekly | Source: football-data.co.uk | Predictions with machine learning")
 
 if __name__ == "__main__":
     main()

@@ -15,7 +15,7 @@ import traceback
 import pandas as pd
 import numpy as np
 import pytz
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 import joblib
 
 print(f"PROJECT_ROOT: {PROJECT_ROOT}")
@@ -119,11 +119,11 @@ def should_run_tips():
     current_weekday = now.weekday()  # 0=Monday, 6=Sunday
     
     # Define time windows (15-minute windows)
-    morning_window_start = time(10, 0)   # 10:00 AM
-    morning_window_end = time(10, 15)    # 10:15 AM
+    morning_window_start = datetime.time(10, 0)   # 10:00 AM
+    morning_window_end = datetime.time(10, 15)    # 10:15 AM
     
-    afternoon_window_start = time(16, 0) # 4:00 PM  
-    afternoon_window_end = time(16, 15)  # 4:15 PM
+    afternoon_window_start = datetime.time(16, 0) # 4:00 PM  
+    afternoon_window_end = datetime.time(16, 15)  # 4:15 PM
     
     # Weekday schedule
     if current_weekday < 5:  # Monday-Friday
@@ -497,7 +497,7 @@ def build_prediction_message(match_row, historical_df):
         f"🏆League: {league_name}\n"
         f"🏠{home} vs {away}\n"
         f"{time_str}\n"
-        f"*→*:{best_tip}\n\n"
+        f"*TIP*:{best_tip}\n\n"
         f"🏠 Home: {hda_proba[0]:.0%} *|* 🤝 Draw: {hda_proba[1]:.0%} *|* 🚌 Away: {hda_proba[2]:.0%}\n"
         f"⚽Both Teams to Score: {gg_proba:.0%}\n"
         f"📈Over 2.5 Goals: {over25_proba:.0%}\n"
@@ -656,7 +656,7 @@ def create_dynamic_header(sent_tips, fixtures, run_type):
     if fixtures.empty:
         result_context = "found *no fixtures* scheduled for today, stay tuned"
     elif not sent_tips:
-        result_context = "found *no high-confidence tips* in our analysis, hang tight"
+        result_context = "found *no high-confidence tips*, hang tight"
     else:
         tip_word = "tip" if len(sent_tips) == 1 else "tips"
         result_context = f"found *{len(sent_tips)} high-confidence {tip_word}*, check them out below"
@@ -687,7 +687,7 @@ def create_dynamic_header(sent_tips, fixtures, run_type):
         "• No noise, no unrealistic promises\n\n"
         
         "`──────────────────────────────`\n"
-        "*Support Our Work:* MPESA TILL *`9105695`*\n"
+        "*Support Our Work:* MPESA TILL *9105695*\n"
         "*scoresignal* •  *ML-Powered Tips* •  *Bet Responsibly*"
     )
     

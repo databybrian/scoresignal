@@ -3,6 +3,9 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
+import warnings
+warnings.simplefilter(action='ignore', category=pd.errors.ParserWarning)
+
 
 # Get project root (parent of current file's directory)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -61,5 +64,33 @@ def load_clean_historical_data(cache=True, file_path="cleaned_historical_data.cs
         print(f"Error loading data from {file_path}: {e}")
         raise
 
+
+# ------------------------------------------------------------------
 # Remove the automatic execution line - let callers decide when to load
-# modelling_df = load_clean_historical_data()  # ← DELETED
+# ------------------------------------------------------------------
+# if __name__ == "__main__":
+#     from pathlib import Path
+
+#     try:
+#         # Define directories
+#         SCRIPT_DIR = Path(__file__).resolve().parent
+#         PROJECT_ROOT = SCRIPT_DIR.parent
+
+#         # Define file paths
+#         raw_file = PROJECT_ROOT / "raw_data" / "combined_historical_data.csv"
+#         output_file = PROJECT_ROOT / "data" / "cleaned_historical_data.csv"
+#         output_file.parent.mkdir(parents=True, exist_ok=True)
+
+#         # Check raw data file
+#         if not raw_file.exists():
+#             raise FileNotFoundError(f"❌ Raw data file not found: {raw_file}")
+
+#         # Load and clean
+#         df = load_clean_historical_data(cache=False, file_path=raw_file)
+
+#         # Save cleaned data
+#         df.to_csv(output_file, index=False)
+#         print(f"\n✅ Cleaned historical data saved: {output_file}")
+
+#     except Exception as e:
+#         print(f"❌ Failed to clean and save historical data: {e}")
