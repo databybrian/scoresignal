@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 # Set page config
 st.set_page_config(
-    page_title="⚽ Football League Standings",
+    page_title="Scoresignal Football Dashboard",
     page_icon="⚽",
     layout="wide"
 )
@@ -52,7 +52,7 @@ def ensure_league_data_fresh():
 @st.cache_data(ttl=3600)
 def load_data():
     """Load and validate league table data, ensuring it's fresh."""
-    ensure_league_data_fresh()  # ← this now works
+    ensure_league_data_fresh()  
     df = pd.read_csv(DATA_FILE)
     required_cols = {'league_name', 'Pos', 'Team', 'P', 'W', 'D', 'L', 'GF', 'GA', 'GD', 'Pts', 'Form'}
     if not required_cols.issubset(df.columns):
@@ -118,8 +118,15 @@ def style_table(df: pd.DataFrame) -> pd.DataFrame:
     
     styled_df = styled_df.format({
         'Pos': '{:.0f}',
+        'P': '{:.0f}',
+        'W': '{:.0f}',
+        'D': '{:.0f}',
+        'L': '{:.0f}',
+        'GF': '{:.0f}',
+        'GA': '{:.0f}',
+        'GD': '{:+.0f}',
         'Pts': '{:.0f}',
-        'GD': '{:+.0f}'
+        'Form': '{:.0f}'
     })
     
     return styled_df
@@ -318,6 +325,7 @@ def load_prediction_data():
         
         # Handle date conversion like main.py
         df_historical['Date'] = pd.to_datetime(df_historical['Date'], errors='coerce')
+        df_historical['Date'] = df_historical['Date'].dt.tz_localize(None)
         
         # Handle fixtures date columns
         if 'Date' in fixtures_df.columns:
@@ -326,6 +334,8 @@ def load_prediction_data():
             fixtures_df['Date'] = pd.to_datetime(fixtures_df['date'], errors='coerce')
         else:
             fixtures_df['Date'] = pd.NaT
+        # Ensure tz-naive
+        fixtures_df['Date'] = fixtures_df['Date'].dt.tz_localize(None)
         
         st.sidebar.success(f"✅ Loaded {len(df_historical)} historical records")
         st.sidebar.success(f"✅ Loaded {len(fixtures_df)} fixtures")
@@ -474,7 +484,7 @@ def prediction_tab():
         return
     
     # Filter fixtures for today + specified days ahead
-    today = pd.Timestamp.now(tz='UTC').normalize()
+    today = pd.Timestamp.now().normalize()  # tz-naive
     end_date = today + timedelta(days=days_ahead)
     
     upcoming = fixtures_df[

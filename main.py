@@ -14,8 +14,8 @@ import shutil
 import traceback
 import pandas as pd
 import numpy as np
+from datetime import datetime, timedelta, time
 import pytz
-from datetime import datetime, timedelta
 import joblib
 
 print(f"PROJECT_ROOT: {PROJECT_ROOT}")
@@ -79,6 +79,19 @@ DAILY_FLAG = PROJECT_ROOT / ".daily_notified"
 from src.data_pipeline import ensure_historical_data_exists, save_all_current_tables
 
 # -------------------
+# Parse time safely
+# -------------------
+def _parse_time_safely(time_str):
+    """Parse time string safely, return None if invalid"""
+    try:
+        if pd.isna(time_str) or time_str in ['', 'TBD', None]:
+            return None
+        parsed = pd.to_datetime(time_str, format='%H:%M', errors='coerce')
+        return parsed if pd.notna(parsed) else None
+    except:
+        return None
+
+# -------------------
 # Cross-Platform Execution Lock
 # -------------------
 def acquire_execution_lock():
@@ -120,15 +133,14 @@ def should_run_tips():
     """
     nairobi_tz = pytz.timezone('Africa/Nairobi')
     now = datetime.now(nairobi_tz)
-    current_time = now.time()
-    current_weekday = now.weekday()  # 0=Monday, 6=Sunday
+    current_time = now.time()  # ✅ This is correct - calling .time() on datetime instance
+    current_weekday = now.weekday()
     
-    # Define time windows (15-minute windows)
-    morning_window_start = datetime.time(10, 0)   # 10:00 AM
-    morning_window_end = datetime.time(10, 15)    # 10:15 AM
+    morning_window_start = time(10, 0)  
+    morning_window_end = time(10, 15)
     
-    afternoon_window_start = datetime.time(16, 0) # 4:00 PM  
-    afternoon_window_end = datetime.time(16, 15)  # 4:15 PM
+    afternoon_window_start = time(16, 0)
+    afternoon_window_end = time(16, 15)
     
     # Weekday schedule
     if current_weekday < 5:  # Monday-Friday
@@ -253,22 +265,31 @@ def safe_fetch_fixtures():
         return False
 
 def load_todays_fixtures():
-    """Load today's fixtures with error handling."""
+    """Load today's fixtures with robust error handling."""
     try:
         fixtures = pd.read_csv(DATA_DIR / "fixtures_data.csv")
-        if 'Date' in fixtures.columns:
-            fixtures['Date'] = pd.to_datetime(fixtures['Date'], errors='coerce')
-        elif 'date' in fixtures.columns:
-            fixtures['Date'] = pd.to_datetime(fixtures['date'], errors='coerce')
-        else:
-            fixtures['Date'] = pd.NaT
-
+        
+        # ✅ Normalize column names (handle both 'Date' and 'date')
+        if 'date' in fixtures.columns and 'Date' not in fixtures.columns:
+            fixtures.rename(columns={'date': 'Date'}, inplace=True)
+        
+        # Ensure Date column exists
+        if 'Date' not in fixtures.columns:
+            print("❌ No Date column found in fixtures")
+            return pd.DataFrame()
+        
+        fixtures['Date'] = pd.to_datetime(fixtures['Date'], errors='coerce')
+        
+        if 'league_code' not in fixtures.columns:
+            fixtures['league_code'] = 'E0'  # Default
+        
         today = pd.Timestamp.now(tz='UTC').normalize()
         todays_fixtures = fixtures[fixtures['Date'].dt.date == today.date()].copy()
         print(f"✅ Loaded {len(todays_fixtures)} fixtures for today")
         return todays_fixtures
     except Exception as e:
         print(f"❌ Failed to load fixtures: {e}")
+        traceback.print_exc()
         return pd.DataFrame()
 
 # -------------------
@@ -346,18 +367,34 @@ def build_prediction_message(match_row, historical_df):
     if not MODELS:
         return "🔧 Models not available - predictions temporarily disabled"
 
-    home = match_row['home_team']
-    away = match_row['away_team']
-    match_date = match_row['Date']
-    league_name = match_row.get('league_name', 'Unknown League')
+    # ✅ Validate inputs
+    try:
+        home = str(match_row['home_team'])
+        away = str(match_row['away_team'])
+        match_date = pd.to_datetime(match_row['Date'])
+        league_name = str(match_row.get('league_name', 'Unknown League'))
+        league_code = str(match_row.get('league_code', 'E0'))
+    except Exception as e:
+        print(f"❌ Invalid match data: {e}")
+        return None
 
-    features = compute_match_features(
-        historical_df=historical_df,
-        home_team=home,
-        away_team=away,
-        match_date=match_date,
-        league_code=match_row.get('league_code', 'E0')
-    )
+    # ✅ Validate historical data
+    if historical_df.empty:
+        print("⚠️ No historical data available")
+        return None
+
+    try:
+        features = compute_match_features(
+            historical_df=historical_df,
+            home_team=home,
+            away_team=away,
+            match_date=match_date,
+            league_code=league_code
+        )
+    except Exception as e:
+        print(f"❌ Feature computation failed: {e}")
+        traceback.print_exc()
+        return None
 
     X_raw = pd.DataFrame([features]) if isinstance(features, dict) else pd.DataFrame([features])
     try:
@@ -455,16 +492,16 @@ def _get_target_fixtures_for_window(fixtures, run_type, is_weekday):
 # ------------------
 def _get_weekend_morning_fixtures(fixtures):
     """Get fixtures for weekend morning run (before 5 PM + no-time matches)"""
+    # ✅ Add safe time parsing
+    fixtures = fixtures.copy()
+    fixtures['parsed_time'] = fixtures['time'].apply(_parse_time_safely)
+    
     target_fixtures = fixtures[
         # Include matches with valid times before 5 PM
-        ((fixtures['time'].notna()) & 
-         (fixtures['time'] != '') & 
-         (fixtures['time'] != 'TBD') &
-         (pd.to_datetime(fixtures['time'], format='%H:%M', errors='coerce').dt.hour <= 17)) |
+        ((fixtures['parsed_time'].notna()) & 
+         (fixtures['parsed_time'].dt.hour < 17)) |
         # OR include matches with no time data
-        (fixtures['time'].isna() | 
-         (fixtures['time'] == '') | 
-         (fixtures['time'] == 'TBD'))
+        (fixtures['parsed_time'].isna())
     ]
     print(f"🌅 Weekend morning run: processing {len(target_fixtures)} fixtures (before 5 PM + no-time matches)")
     return target_fixtures
@@ -474,11 +511,13 @@ def _get_weekend_morning_fixtures(fixtures):
 # ------------------
 def _get_weekend_afternoon_fixtures(fixtures):
     """Get fixtures for weekend afternoon run (after 5 PM only)"""
+    # ✅ Add safe time parsing
+    fixtures = fixtures.copy()
+    fixtures['parsed_time'] = fixtures['time'].apply(_parse_time_safely)
+    
     target_fixtures = fixtures[
-        (fixtures['time'].notna()) & 
-        (fixtures['time'] != '') & 
-        (fixtures['time'] != 'TBD') &
-        (pd.to_datetime(fixtures['time'], format='%H:%M', errors='coerce').dt.hour > 17)
+        (fixtures['parsed_time'].notna()) & 
+        (fixtures['parsed_time'].dt.hour >= 17)
     ]
     print(f"🌇 Weekend afternoon run: processing {len(target_fixtures)} fixtures (5 PM and later only)")
     return target_fixtures
@@ -490,8 +529,19 @@ def _process_single_match(match, historical_df):
     """
     Process a single match and return tip data if successful
     """
+    # ✅ Validate required fields
+    if pd.isna(match.get('home_team')) or pd.isna(match.get('away_team')):
+        print("⚠️ Skipped: Missing team names")
+        return None
+    
     home = match['home_team']
     away = match['away_team']
+    
+    # ✅ Validate date
+    if pd.isna(match.get('Date')):
+        print(f"⚠️ Skipped: Missing date for {home} vs {away}")
+        return None
+    
     date_str = match['Date'].strftime('%Y-%m-%d')
 
     if has_been_predicted(home, away, date_str):
@@ -517,6 +567,7 @@ def _process_single_match(match, historical_df):
 
     except Exception as e:
         print(f"❌ Error predicting {home} vs {away}: {e}")
+        traceback.print_exc()  # ✅ Add traceback for debugging
         return None
 
 # -------------------
