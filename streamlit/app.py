@@ -21,37 +21,45 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 DATA_FILE = PROJECT_ROOT / "data" / "current_season_leagues_table.csv"
 
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src")) 
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour to avoid repeated disk reads
+from src.data_pipeline import save_all_current_tables
+
+def file_age_days(path: Path) -> float:
+    if not path.exists():
+        return float("inf")
+    return (datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)).total_seconds() / 86400.0
+
+def ensure_league_data_fresh():
+    """Ensure current_season_leagues_table.csv exists and is <=7 days old."""
+    DATA_FILE = PROJECT_ROOT / "data" / "current_season_leagues_table.csv"
+    DATA_DIR = PROJECT_ROOT / "data"
+    DATA_DIR.mkdir(exist_ok=True)
+
+    if not DATA_FILE.exists() or file_age_days(DATA_FILE) >= 7:
+        st.info("📊 League data missing or stale. Refreshing...")
+        try:
+            # Ensure historical data is ready (needed for league table)
+            from src.data_pipeline import ensure_historical_data_exists
+            ensure_historical_data_exists(days=7)
+            # Generate league table
+            save_all_current_tables()
+            st.success("✅ League data refreshed!")
+        except Exception as e:
+            st.error(f"❌ Failed to refresh league data: {e}")
+            st.stop()
+
+@st.cache_data(ttl=3600)
 def load_data():
     """Load and validate league table data, ensuring it's fresh."""
-    # Ensure data exists and is up-to-date
-    ensure_league_data_fresh()
-    
+    ensure_league_data_fresh()  # ← this now works
     df = pd.read_csv(DATA_FILE)
     required_cols = {'league_name', 'Pos', 'Team', 'P', 'W', 'D', 'L', 'GF', 'GA', 'GD', 'Pts', 'Form'}
     if not required_cols.issubset(df.columns):
         missing = required_cols - set(df.columns)
         st.error(f"Missing columns in data: {missing}")
         st.stop()
-    
     return df
-
-def ensure_league_data_fresh():
-    """Ensure current_season_leagues_table.csv exists and is <=7 days old."""
-    DATA_DIR = PROJECT_ROOT / "data"
-    DATA_DIR.mkdir(exist_ok=True)  # Ensure data dir exists
-
-    if not DATA_FILE.exists():
-        st.info("📊 League data not found. Fetching fresh data...")
-        try:
-            from src.save_current_tables import save_all_current_tables 
-            save_all_current_tables()
-            st.success("✅ League data fetched and saved!")
-        except Exception as e:
-            st.error(f"❌ Failed to generate league data: {e}")
-            st.stop()
-        return
 
     # Check if file is older than 7 days
     file_mod_time = datetime.fromtimestamp(os.path.getmtime(DATA_FILE))
