@@ -76,7 +76,7 @@ DAILY_FLAG = PROJECT_ROOT / ".daily_notified"
 # -------------------
 # Import shared data pipeline functions
 # -------------------
-from src.data_pipeline import ensure_historical_data_exists, save_all_current_tables
+from src.data_pipeline import ensure_historical_data_exists, save_all_current_tables, needs_refresh
 
 # -------------------
 # Parse time safely
@@ -133,10 +133,10 @@ def should_run_tips():
     """
     nairobi_tz = pytz.timezone('Africa/Nairobi')
     now = datetime.now(nairobi_tz)
-    current_time = now.time()  # ✅ This is correct - calling .time() on datetime instance
+    current_time = now.time()  
     current_weekday = now.weekday()
     
-    morning_window_start = time(10, 0)  
+    morning_window_start = time(10, 0)  #edit this back to 10
     morning_window_end = time(10, 15)
     
     afternoon_window_start = time(16, 0)
@@ -461,9 +461,6 @@ def build_prediction_message(match_row, historical_df):
             f"➡️ {edge:+.0%} *edge (Our Model vs Historical Average)*\n"
         )
 
-    message += (f"{separator}\n"
-                f"💡 Bet responsibly || scoresignal")
-
     return message
 
 # -------------------
@@ -523,6 +520,50 @@ def _get_weekend_afternoon_fixtures(fixtures):
     return target_fixtures
 
 # -------------------
+# Batch message sending with Telegram limits
+# -------------------
+def send_batched_tips(tips_messages):
+    """
+    Send tips in batched messages respecting Telegram's 4096 character limit.
+    Each tip separated by horizontal line.
+    """
+    if not tips_messages:
+        return
+    
+    TELEGRAM_LIMIT = 4096
+    SEPARATOR = "\n\n" + "─" * 40 + "\n\n"
+    
+    current_batch = []
+    current_length = 0
+    
+    for tip_msg in tips_messages:
+        # Calculate length with separator
+        tip_length = len(tip_msg)
+        separator_length = len(SEPARATOR) if current_batch else 0
+        
+        # Check if adding this tip would exceed limit
+        if current_length + separator_length + tip_length > TELEGRAM_LIMIT - 100:  # 100 char buffer
+            # Send current batch
+            if current_batch:
+                batched_message = SEPARATOR.join(current_batch)
+                send_telegram_message(batched_message)
+                time.sleep(1)  # Rate limiting between batches
+            
+            # Start new batch
+            current_batch = [tip_msg]
+            current_length = tip_length
+        else:
+            # Add to current batch
+            current_batch.append(tip_msg)
+            current_length += separator_length + tip_length
+    
+    # Send remaining batch
+    if current_batch:
+        batched_message = SEPARATOR.join(current_batch)
+        send_telegram_message(batched_message)
+
+
+# -------------------
 # Single match processing helper
 # ------------------
 def _process_single_match(match, historical_df):
@@ -554,20 +595,21 @@ def _process_single_match(match, historical_df):
             print(f"⏭️  Skipped (low confidence): {home} vs {away}")
             return None
 
-        send_telegram_message(message)
+        # Log prediction but don't send yet (batching will handle sending)
         backup_prediction_log()
         log_prediction(home, away, date_str)
-        print(f"✅ Sent prediction: {home} vs {away}")
+        print(f"✅ Generated prediction: {home} vs {away}")
         
         return {
             'home': home,
             'away': away,
-            'league': match.get('league_name', 'Unknown League')
+            'league': match.get('league_name', 'Unknown League'),
+            'message': message  # Include message for batching
         }
 
     except Exception as e:
         print(f"❌ Error predicting {home} vs {away}: {e}")
-        traceback.print_exc()  # ✅ Add traceback for debugging
+        traceback.print_exc()
         return None
 
 # -------------------
@@ -595,12 +637,23 @@ def run_predictions_for_time_window(fixtures, historical_df, run_type):
 
     # Process each match
     sent_tips = []
+    tip_messages = []
+    
     for _, match in target_fixtures.iterrows():
         tip_data = _process_single_match(match, historical_df)
         if tip_data:
-            sent_tips.append(tip_data)
-            time.sleep(0.5)  # Rate limiting
+            sent_tips.append({
+                'home': tip_data['home'],
+                'away': tip_data['away'],
+                'league': tip_data['league']
+            })
+            tip_messages.append(tip_data['message'])
+            time.sleep(0.3)  # Rate limiting between processing
 
+    # Send all tips in batched messages
+    if tip_messages:
+        send_batched_tips(tip_messages)
+        
     print(f"📊 {len(sent_tips)} tips sent for {run_type} run")
     return sent_tips
 

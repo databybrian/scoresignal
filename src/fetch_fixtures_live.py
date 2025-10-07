@@ -125,10 +125,7 @@ def fetch_and_save_fixtures(filepath: Optional[str] = None, season: str = "2025-
 #     """Fetch all fixtures and save to CSV"""
 #     print("🔄 Fetching fresh fixtures from openfootball...")
 #     df = fetch_all_fixtures(season)
-#     try:
-#         df = format_date_column(df)
-#     except (ImportError, AttributeError):
-#         pass  # Continue without date formatting if function not available
+# 
 #     df.to_csv(filepath, index=False, encoding='utf-8-sig')
 #     print(f"✅ Saved {len(df)} fixtures to {filepath}")
 #     return df

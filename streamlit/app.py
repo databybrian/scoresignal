@@ -12,8 +12,86 @@ from datetime import datetime, timedelta
 st.set_page_config(
     page_title="Scoresignal Football Dashboard",
     page_icon="⚽",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
+
+# Custom CSS for compact design
+st.markdown("""
+    <style>
+        /* Reduce top padding */
+        .block-container {
+            padding-top: 1rem;
+            padding-bottom: 0rem;
+            max-width: 100%;
+        }
+        
+        /* Compact header */
+        h1 {
+            font-size: 1.8rem !important;
+            margin-bottom: 0.5rem !important;
+            padding-top: 0 !important;
+        }
+        
+        h2 {
+            font-size: 1.4rem !important;
+            margin-top: 0.5rem !important;
+            margin-bottom: 0.5rem !important;
+        }
+        
+        h3 {
+            font-size: 1.2rem !important;
+            margin-top: 0.5rem !important;
+            margin-bottom: 0.5rem !important;
+        }
+        
+        /* Compact metrics */
+        [data-testid="stMetricValue"] {
+            font-size: 1.2rem;
+        }
+        
+        [data-testid="stMetricLabel"] {
+            font-size: 0.8rem;
+        }
+        
+        /* Compact tables */
+        .dataframe {
+            font-size: 13px !important;
+        }
+        
+        /* Remove extra spacing */
+        .element-container {
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Compact tabs */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 1rem;
+            padding-top: 0;
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            padding: 0.5rem 1rem;
+            font-size: 0.95rem;
+        }
+        
+        /* Compact buttons */
+        .stButton > button {
+            padding: 0.4rem 1rem;
+            font-size: 0.9rem;
+        }
+        
+        /* Compact selectbox */
+        .stSelectbox {
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Hide Streamlit branding */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
 
 # Paths
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -23,7 +101,6 @@ DATA_FILE = PROJECT_ROOT / "data" / "current_season_leagues_table.csv"
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src")) 
 
-from src.data_pipeline import save_all_current_tables
 
 def file_age_days(path: Path) -> float:
     if not path.exists():
@@ -40,7 +117,7 @@ def ensure_league_data_fresh():
         st.info("📊 League data missing or stale. Refreshing...")
         try:
             # Ensure historical data is ready (needed for league table)
-            from src.data_pipeline import ensure_historical_data_exists
+            from src.data_pipeline import ensure_historical_data_exists, save_all_current_tables
             ensure_historical_data_exists(days=7)
             # Generate league table
             save_all_current_tables()
@@ -48,6 +125,31 @@ def ensure_league_data_fresh():
         except Exception as e:
             st.error(f"❌ Failed to refresh league data: {e}")
             st.stop()
+
+def safe_fetch_fixtures():
+    """Safely fetch fixtures; refresh weekly"""
+    DATA_DIR = PROJECT_ROOT / "data"
+    fixtures_file = DATA_DIR / "fixtures_data.csv"
+
+    from src.data_pipeline import needs_refresh
+    if fixtures_file.exists() and not needs_refresh(fixtures_file, days=7):
+        print("✅ Fixtures file is recent - no refresh needed")
+        return True
+
+    print("🔄 fixtures_data.csv missing/old - fetching live fixtures...")
+    try:
+        from src.fetch_fixtures_live import fetch_and_save_fixtures
+        fetch_and_save_fixtures(str(fixtures_file))
+        print("✅ Fixtures fetched successfully")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to fetch fixtures: {e}")
+        empty_df = pd.DataFrame(columns=[
+            'round', 'date', 'time', 'home_team', 'away_team',
+            'home_score', 'away_score', 'league_key', 'league_name', 'season'
+        ])
+        empty_df.to_csv(fixtures_file, index=False)
+        return False
 
 @st.cache_data(ttl=3600)
 def load_data():
@@ -60,18 +162,6 @@ def load_data():
         st.error(f"Missing columns in data: {missing}")
         st.stop()
     return df
-
-    # Check if file is older than 7 days
-    file_mod_time = datetime.fromtimestamp(os.path.getmtime(DATA_FILE))
-    if datetime.now() - file_mod_time > timedelta(days=7):
-        st.info("🔄 League data is older than 7 days. Refreshing...")
-        try:
-            from src.save_current_tables import save_all_current_tables
-            save_all_current_tables()
-            st.success("✅ League data refreshed!")
-        except Exception as e:
-            st.warning(f"⚠️ Failed to refresh data (using stale data): {e}")
-        # Don't stop — allow stale data as fallback
 
 def extract_country_from_league(league_name):
     """Extract country name from league name."""
@@ -191,9 +281,8 @@ def create_form_analysis(league_df):
     return form_df.sort_values('Form_Points', ascending=False)
 
 # =============================================================================
-# PREDICTION TAB FUNCTIONS - REFACTORED TO MATCH MAIN.PY
-# =============================================================================
-
+# PREDICTION TAB FUNCTIONS 
+# =============================================================================  
 def load_models():
     """Load trained models and feature columns using main.py structure."""
     MODEL_DIR = PROJECT_ROOT / "model"
@@ -455,7 +544,7 @@ def style_predictions_table(df):
 
 def prediction_tab():
     """Refactored prediction tab using main.py logic."""
-    st.subheader("🔮 AI-Powered Match Predictions")
+    st.subheader("AI-Powered Match Predictions")
     st.markdown("Using the **exact same signal logic** as the Telegram bot")
     
     # Configuration - removed confidence slider, fixed at 48%
@@ -660,7 +749,7 @@ def main():
     </style>
     """, unsafe_allow_html=True)
     
-    st.title("⚽ Scoresignal Football Analytics Dashboard")
+    st.title("Scoresignal Football Analytics Dashboard")
     
     # Header
     header_col1, header_col2 = st.columns([3, 2])

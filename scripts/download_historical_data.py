@@ -105,7 +105,7 @@ def download_and_combine_all_historical_data():
             print(f"  → {league_code}_{season}...", end=" ", flush=True)
             
             df = download_and_process_league_season(league_code, season, country, league_name)
-            
+            df = format_date_column(df)
             if not df.empty:
                 all_data.append(df)
                 season_count += 1
@@ -124,10 +124,6 @@ def download_and_combine_all_historical_data():
     print(f"\n{'='*60}")
     print(f"🔄 Combining all data...")
     combined_df = pd.concat(all_data, ignore_index=True)
-    try:
-        combined_df = format_date_column(combined_df)
-    except (ImportError, AttributeError):
-        pass  # Continue without date formatting if function not available
     
     # Reorder columns to put metadata first and keep only essential columns
     available_columns = [col for col in essential_columns if col in combined_df.columns]
@@ -139,6 +135,8 @@ def download_and_combine_all_historical_data():
     
     # Save to CSV
     combined_df.to_csv(OUTPUT_FILE, index=False, encoding='utf-8')
+    min_date = combined_df['Date'].min()
+    max_date = combined_df['Date'].max()
     
     print(f"✅ COMBINED DATA SAVED")
     print(f"📁 File: {OUTPUT_FILE.absolute()}")
@@ -146,7 +144,10 @@ def download_and_combine_all_historical_data():
     print(f"🌍 Countries: {combined_df['country'].nunique()}")
     print(f"🏆 Leagues: {combined_df['league_name'].nunique()}")
     print(f"📅 Seasons: {combined_df['season'].nunique()}")
+    print(f"📅 Oldest match date: {min_date.strftime('%Y-%m-%d')}")
+    print(f"📆 Latest match date: {max_date.strftime('%Y-%m-%d')}")
     print(f"{'='*60}")
 
 if __name__ == "__main__":
     download_and_combine_all_historical_data()
+

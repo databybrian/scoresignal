@@ -118,12 +118,12 @@ def ensure_historical_data_exists(days: int = 7):
     return True
 
 # -------------------
-# League Table Builder (from table_builder.py) - FIXED
+# League Table Builder
 # -------------------
 def build_league_table(
     df: pd.DataFrame,
     league_code: str,
-    season: int = None,
+    season = None,
     as_of_date: Optional[str] = None,
     save_current: bool = False
 ) -> pd.DataFrame:
@@ -161,8 +161,8 @@ def build_league_table(
         most_recent_season = max(available_seasons)
         league_df = league_all[league_all['season'] == most_recent_season].copy()
         
-        # Log fallback (but don't print to avoid Railway logs)
-        # You could add logging here if needed
+        # Log fallback 
+        # Logging here if needed
 
     # Handle as_of_date
     if as_of_date:

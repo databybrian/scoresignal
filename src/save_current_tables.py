@@ -7,7 +7,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 from src.data_utils import current_season_int
 
-from src.table_builder import build_league_table
+from src.data_pipeline import build_league_table
 
 def save_all_current_tables():
     # Load data with Date parsing

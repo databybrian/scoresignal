@@ -26,27 +26,52 @@ essential_columns = [
 def format_date_column(df: pd.DataFrame) -> pd.DataFrame:
     """
     Convert the date column to proper datetime format.
-    Handles both 'Date' and 'date' column names.
+    Handles both DD/MM/YYYY and MM/DD/YYYY formats robustly,
+    while avoiding pandas 'Could not infer format' warnings.
     """
-    # Standardize column name to 'Date'
-    if 'date' in df.columns.str.lower():
-        date_col = df.columns[df.columns.str.lower() == 'date'][0]
-        if date_col != 'Date':
-            df = df.rename(columns={date_col: 'Date'})
-    
-    if 'Date' not in df.columns:
-        return df
-    
-    # Convert to datetime
-    original_count = len(df)
-    df['Date'] = pd.to_datetime(df['Date'], format='mixed', errors='coerce')
-    df = df.dropna(subset=['Date'])
-    
-    removed_count = original_count - len(df)
-    if removed_count > 0:
-        print(f"⚠️  Removed {removed_count} rows with invalid dates")
-    
+    # Identify and standardize the 'Date' column ---
+    date_col_candidates = [c for c in df.columns if c.lower() == 'date']
+    if not date_col_candidates:
+        return df  # No date column found
+    date_col = date_col_candidates[0]
+    if date_col != 'Date':
+        df = df.rename(columns={date_col: 'Date'})
+
+    # Clean up the date strings ---
+    df['Date'] = df['Date'].astype(str).str.replace(r"[-._]", "/", regex=True).str.strip()
+
+    # Infer format (dayfirst or monthfirst) ---
+    sample_dates = df['Date'].dropna().head(50)
+    ddmm_count, mmdd_count = 0, 0
+
+    for d in sample_dates:
+        parts = d.split('/')
+        if len(parts) == 3 and all(p.isdigit() for p in parts[:2]):
+            day, month = int(parts[0]), int(parts[1])
+            if day > 12:
+                ddmm_count += 1
+            elif month > 12:
+                mmdd_count += 1
+
+    dayfirst = ddmm_count > mmdd_count
+
+    # Apply explicit format to suppress warnings
+    # Choose appropriate format string
+    fmt = "%d/%m/%Y" if dayfirst else "%m/%d/%Y"
+
+    # Try parsing with inferred format; fallback safely if mixed formats exist
+    parsed = pd.to_datetime(df['Date'], format=fmt, errors='coerce')
+
+    # If more than 30% NaT, try the opposite format
+    if parsed.isna().mean() > 0.3:
+        alt_fmt = "%m/%d/%Y" if dayfirst else "%d/%m/%Y"
+        parsed_alt = pd.to_datetime(df['Date'], format=alt_fmt, errors='coerce')
+        if parsed_alt.notna().sum() > parsed.notna().sum():
+            parsed = parsed_alt
+
+    df['Date'] = parsed
     return df
+
 # team_mapping_utils.py
 def validate_team_mapping(fixtures_df: pd.DataFrame, mapping_df: pd.DataFrame):
     """
