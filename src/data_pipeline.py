@@ -52,6 +52,22 @@ def get_current_season() -> int:
     season_str = f"{start_year % 100:02d}{end_year % 100:02d}"
     return int(season_str)
 
+# Get last 15 seasons including current
+def get_last_15_seasons() -> list[str]:
+    """
+    Generate a list of the last 15 football seasons (including the current one)
+    in football-data.co.uk format, e.g. ['1112', ..., '2526'].
+    """
+    current_season = get_current_season()  # e.g. 2526
+    current_start_year = int(str(current_season)[:2])  # 25
+
+    # 15 seasons including the current one
+    start_year = current_start_year - 14
+    end_year = current_start_year
+
+    return [f"{year:02d}{(year+1):02d}" for year in range(start_year, end_year + 1)]
+
+# File age and refresh check
 def file_age_days(path: Path) -> float:
     if not path.exists():
         return float("inf")

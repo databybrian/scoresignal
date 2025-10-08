@@ -11,21 +11,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.data_utils import format_date_column, essential_columns
+from src.data_pipeline import get_last_15_seasons
 from bot.config import current_season  # Only import what you need
 
 # Configuration
 BASE_URL = "https://www.football-data.co.uk/mmz4281"  # Fixed extra spaces
 
-# Use current_season from config
-current_start_year = int(current_season[:2])  # 25
-start_year = current_start_year - 15  # 25 - 15 = 10 (2010-11)
-end_year = current_start_year         # 25 (2025-26)
-
-SEASONS = [f"{year:02d}{(year+1):02d}" for year in range(start_year, end_year + 1)]
+SEASONS = get_last_15_seasons()
 
 # Load league mapping from CSV - use correct path
 LEAGUE_CONFIG_FILE = PROJECT_ROOT / "raw_data" / "footballdata_league_list.csv"
-OUTPUT_FILE = PROJECT_ROOT / "combined_historical_data.csv"
+OUTPUT_FILE = PROJECT_ROOT /"raw_data" / "combined_historical_data.csv"
 
 def load_league_config(config_file: Path) -> pd.DataFrame:
     """Load league configuration from CSV"""
@@ -105,7 +101,7 @@ def download_and_combine_all_historical_data():
             print(f"  → {league_code}_{season}...", end=" ", flush=True)
             
             df = download_and_process_league_season(league_code, season, country, league_name)
-            df = format_date_column(df)
+            df = format_date_column(df, date_format='auto')
             if not df.empty:
                 all_data.append(df)
                 season_count += 1
