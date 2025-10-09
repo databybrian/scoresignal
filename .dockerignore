@@ -1,0 +1,50 @@
+# Virtual environments
+venv/
+env/
+.venv/
+testenv/
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Environment files (Railway injects these at runtime)
+.env
+.env.*
+.env.local
+.env.development
+.env.production
+
+# Data files (models are needed, but raw/live data should NOT be baked in)
+# keep model/ if you're loading pre-trained models!
+# So we EXCLUDE data/, but NOT model/
+data/
+raw_data/
+logs/
+*.log
+*.sqlite3
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE / Editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.ipynb_checkpoints/
+*.ipynb
+
+# Test files
+test_*.py
+
+# Misc
+ngrok_recovery_codes.txt
+.coverage
+.pytest_cache/
