@@ -1,0 +1,20 @@
+# nixpacks.toml
+# Railway configuration file for system dependencies
+
+[phases.setup]
+# Install required system packages for ML libraries
+aptPkgs = [
+    "libgomp1",           # Required for LightGBM (OpenMP)
+    "libopenblas-dev",    # Optional: for NumPy/SciPy optimization
+    "liblapack-dev",      # Optional: for linear algebra operations
+    "build-essential",    # Compiler tools
+    "gcc",                # GNU C Compiler
+    "g++"                 # GNU C++ Compiler
+]
+
+[phases.install]
+# Python dependencies are handled by pip from requirements.txt
+
+[start]
+# Your start command (adjust if needed)
+cmd = "python main.py"
