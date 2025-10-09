@@ -17,7 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Paths
 DATA_DIR = PROJECT_ROOT / "data"
-RAW_FILE = PROJECT_ROOT / "combined_historical_data.csv"
+RAW_FILE = PROJECT_ROOT /"raw_data" / "combined_historical_data.csv"
 CLEANED_FILE = DATA_DIR / "cleaned_historical_data.csv"
 
 # Ensure data dir exists

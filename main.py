@@ -374,15 +374,15 @@ def select_best_tip(hda_proba, btts_proba, over25_proba):
     under_prob = 1 - over25_proba
     
     # Calculate confidence scores (how far from 50% baseline)
-    hda_home_confidence = max(0, home_prob - 0.53)
-    hda_away_confidence = max(0, away_prob - 0.53)
-    hda_draw_confidence = max(0, draw_prob - 0.32)
+    hda_home_confidence = max(0, home_prob - 0.52)
+    hda_away_confidence = max(0, away_prob - 0.52)
+    hda_draw_confidence = max(0, draw_prob - 0.37)
     
-    btts_yes_confidence = max(0, btts_yes - 0.56)
-    btts_no_confidence = max(0, btts_no - 0.56)
+    btts_yes_confidence = max(0, btts_yes - 0.53)
+    btts_no_confidence = max(0, btts_no - 0.53)
     
-    over_confidence = max(0, over_prob - 0.56)
-    under_confidence = max(0, under_prob - 0.56)
+    over_confidence = max(0, over_prob - 0.55)
+    under_confidence = max(0, under_prob - 0.55)
     
     # Collect all viable tips with their confidence
     tips = []
