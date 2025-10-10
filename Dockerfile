@@ -36,7 +36,7 @@ RUN mkdir -p model data streamlit src
 EXPOSE $PORT
 
 # Start Streamlit app (matches your railway.json)
-CMD ["streamlit", "run", "streamlit/app.py", "--server.address=0.0.0.0", "--server.port=$PORT"]
+CMD ["streamlit", "run", "streamlit_app/app.py", "--server.address=0.0.0.0", "--server.port=$PORT"]
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
