@@ -25,67 +25,55 @@ st.markdown("""
             padding-bottom: 0rem;
             max-width: 100%;
         }
-        
         /* Compact header */
         h1 {
             font-size: 1.8rem !important;
             margin-bottom: 0.5rem !important;
             padding-top: 0 !important;
         }
-        
         h2 {
             font-size: 1.4rem !important;
             margin-top: 0.5rem !important;
             margin-bottom: 0.5rem !important;
         }
-        
         h3 {
             font-size: 1.2rem !important;
             margin-top: 0.5rem !important;
             margin-bottom: 0.5rem !important;
         }
-        
         /* Compact metrics */
         [data-testid="stMetricValue"] {
             font-size: 1.2rem;
         }
-        
         [data-testid="stMetricLabel"] {
             font-size: 0.8rem;
         }
-        
         /* Compact tables */
         .dataframe {
             font-size: 13px !important;
         }
-        
         /* Remove extra spacing */
         .element-container {
             margin-bottom: 0.5rem;
         }
-        
         /* Compact tabs */
         .stTabs [data-baseweb="tab-list"] {
             gap: 1rem;
             padding-top: 0;
         }
-        
         .stTabs [data-baseweb="tab"] {
             padding: 0.5rem 1rem;
             font-size: 0.95rem;
         }
-        
         /* Compact buttons */
         .stButton > button {
             padding: 0.4rem 1rem;
             font-size: 0.9rem;
         }
-        
         /* Compact selectbox */
         .stSelectbox {
             margin-bottom: 0.5rem;
         }
-        
         /* Hide Streamlit branding */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
@@ -97,9 +85,8 @@ st.markdown("""
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 DATA_FILE = PROJECT_ROOT / "data" / "current_season_leagues_table.csv"
-
 sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "src")) 
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 
 def file_age_days(path: Path) -> float:
@@ -107,64 +94,191 @@ def file_age_days(path: Path) -> float:
         return float("inf")
     return (datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)).total_seconds() / 86400.0
 
+
 def ensure_league_data_fresh():
     """Ensure current_season_leagues_table.csv exists and is <=7 days old."""
     DATA_FILE = PROJECT_ROOT / "data" / "current_season_leagues_table.csv"
     DATA_DIR = PROJECT_ROOT / "data"
     DATA_DIR.mkdir(exist_ok=True)
-
     if not DATA_FILE.exists() or file_age_days(DATA_FILE) >= 7:
         st.info("📊 League data missing or stale. Refreshing...")
         try:
-            # Ensure historical data is ready (needed for league table)
             from src.data_pipeline import ensure_historical_data_exists, save_all_current_tables
             ensure_historical_data_exists(days=7)
-            # Generate league table
             save_all_current_tables()
             st.success("✅ League data refreshed!")
         except Exception as e:
             st.error(f"❌ Failed to refresh league data: {e}")
             st.stop()
 
-def safe_fetch_fixtures():
-    """Safely fetch fixtures; refresh weekly"""
-    DATA_DIR = PROJECT_ROOT / "data"
-    fixtures_file = DATA_DIR / "fixtures_data.csv"
 
-    from src.data_pipeline import needs_refresh
-    if fixtures_file.exists() and not needs_refresh(fixtures_file, days=7):
-        print("✅ Fixtures file is recent - no refresh needed")
-        return True
+# =============================================================================
+# PREDICTION LOGIC (SYNCED WITH main.py)
+# =============================================================================
 
-    print("🔄 fixtures_data.csv missing/old - fetching live fixtures...")
+def load_models():
+    """Load ensemble models exactly as in main.py"""
+    MODEL_DIR = PROJECT_ROOT / "model"
+    if not MODEL_DIR.exists():
+        st.error(f"Model directory not found: {MODEL_DIR}")
+        return None
+
+    required_files = [
+        "ensemble_hda.pkl",
+        "ensemble_btts.pkl",
+        "ensemble_over25.pkl",
+        "feature_metadata.pkl"
+    ]
+    
+    for f in required_files:
+        if not (MODEL_DIR / f).exists():
+            st.error(f"Missing model file: {f}")
+            return None
+
     try:
-        from src.fetch_fixtures_live import fetch_and_save_fixtures
-        fetch_and_save_fixtures(str(fixtures_file))
-        print("✅ Fixtures fetched successfully")
-        return True
+        models = {}
+        models['hda'] = joblib.load(MODEL_DIR / "ensemble_hda.pkl")
+        models['btts'] = joblib.load(MODEL_DIR / "ensemble_btts.pkl")
+        models['over25'] = joblib.load(MODEL_DIR / "ensemble_over25.pkl")
+        feature_metadata = joblib.load(MODEL_DIR / "feature_metadata.pkl")
+        models.update(feature_metadata)
+        st.sidebar.success("✅ Loaded ensemble models (XGBoost + LightGBM + CatBoost)")
+        return models
     except Exception as e:
-        print(f"❌ Failed to fetch fixtures: {e}")
-        empty_df = pd.DataFrame(columns=[
-            'round', 'date', 'time', 'home_team', 'away_team',
-            'home_score', 'away_score', 'league_key', 'league_name', 'season'
-        ])
-        empty_df.to_csv(fixtures_file, index=False)
-        return False
+        st.error(f"Failed to load models: {e}")
+        return None
 
-@st.cache_data(ttl=3600)
-def load_data():
-    """Load and validate league table data, ensuring it's fresh."""
-    ensure_league_data_fresh()  
-    df = pd.read_csv(DATA_FILE)
-    required_cols = {'league_name', 'Pos', 'Team', 'P', 'W', 'D', 'L', 'GF', 'GA', 'GD', 'Pts', 'Form'}
-    if not required_cols.issubset(df.columns):
-        missing = required_cols - set(df.columns)
-        st.error(f"Missing columns in data: {missing}")
-        st.stop()
-    return df
+
+def select_best_tip(hda_proba, btts_proba, over25_proba):
+    """
+    Exact copy from main.py
+    """
+    home_prob, draw_prob, away_prob = hda_proba
+    btts_yes = btts_proba
+    btts_no = 1 - btts_proba
+    over_prob = over25_proba
+    under_prob = 1 - over25_proba
+
+    hda_home_confidence = max(0, home_prob - 0.53)
+    hda_away_confidence = max(0, away_prob - 0.53)
+    hda_draw_confidence = max(0, draw_prob - 0.32)
+    btts_yes_confidence = max(0, btts_yes - 0.56)
+    btts_no_confidence = max(0, btts_no - 0.56)
+    over_confidence = max(0, over_prob - 0.56)
+    under_confidence = max(0, under_prob - 0.56)
+
+    tips = []
+    if hda_home_confidence > 0:
+        tips.append(('HDA_HOME', f"🟢 HOME WIN", home_prob, hda_home_confidence, 'primary'))
+    if hda_away_confidence > 0:
+        tips.append(('HDA_AWAY', f"🔵 AWAY WIN", away_prob, hda_away_confidence, 'primary'))
+    if hda_draw_confidence > 0:
+        tips.append(('HDA_DRAW', f"🟡 DRAW", draw_prob, hda_draw_confidence, 'secondary'))
+    if btts_yes_confidence > 0:
+        tips.append(('BTTS_YES', f"⚽ BOTH TEAMS TO SCORE (Yes)", btts_yes, btts_yes_confidence, 'primary'))
+    if btts_no_confidence > 0:
+        tips.append(('BTTS_NO', f"🚫 BOTH TEAMS TO SCORE (No)", btts_no, btts_no_confidence, 'secondary'))
+    if over_confidence > 0:
+        tips.append(('OVER25', f"📈 OVER 2.5 GOALS", over_prob, over_confidence, 'primary'))
+    if under_confidence > 0:
+        tips.append(('UNDER25', f"📉 UNDER 2.5 GOALS", under_prob, under_confidence, 'secondary'))
+
+    if not tips:
+        return None, None, 0, False, []
+
+    tips.sort(key=lambda x: x[3], reverse=True)
+    best_tip = tips[0]
+    tip_type, tip_text, probability, confidence, priority = best_tip
+    secondary_tips = [t for t in tips[1:3] if t[4] == 'secondary' or t[3] > 0.05]
+    return tip_type, tip_text, probability, True, secondary_tips
+
+
+def predict_with_ensemble(ensemble_models, X, task='multiclass'):
+    """Same as main.py"""
+    predictions = []
+    if task == 'multiclass':
+        predictions.append(ensemble_models['xgb'].predict_proba(X))
+        predictions.append(ensemble_models['lgb'].predict_proba(X))
+        predictions.append(ensemble_models['cat'].predict_proba(X))
+    else:
+        predictions.append(ensemble_models['xgb'].predict_proba(X)[:, 1])
+        predictions.append(ensemble_models['lgb'].predict_proba(X)[:, 1])
+        predictions.append(ensemble_models['cat'].predict_proba(X)[:, 1])
+    return np.mean(predictions, axis=0)
+
+
+def load_prediction_data():
+    """Load data, auto-generate if missing (like main.py)"""
+    DATA_DIR = PROJECT_ROOT / "data"
+    DATA_DIR.mkdir(exist_ok=True)
+
+    # Ensure historical data exists
+    if not (DATA_DIR / "cleaned_historical_data.csv").exists():
+        st.info("🔄 Generating historical data...")
+        from src.data_pipeline import ensure_historical_data_exists
+        ensure_historical_data_exists()
+
+    # Ensure fixtures exist
+    fixtures_file = DATA_DIR / "fixtures_data.csv"
+    from src.data_pipeline import needs_refresh
+    if not fixtures_file.exists() or needs_refresh(fixtures_file, days=7):
+        st.info("🔄 Fetching live fixtures...")
+        try:
+            from src.fetch_fixtures_live import fetch_and_save_fixtures
+            fetch_and_save_fixtures(str(fixtures_file))
+        except Exception as e:
+            st.warning(f"⚠️ Failed to fetch fixtures: {e}")
+            empty_df = pd.DataFrame(columns=[
+                'round', 'date', 'time', 'home_team', 'away_team',
+                'home_score', 'away_score', 'league_key', 'league_name', 'season'
+            ])
+            empty_df.to_csv(fixtures_file, index=False)
+
+    # Load data
+    try:
+        df_historical = pd.read_csv(DATA_DIR / "cleaned_historical_data.csv")
+        df_historical['Date'] = pd.to_datetime(df_historical['Date'], errors='coerce')
+        fixtures_df = pd.read_csv(fixtures_file)
+        if 'date' in fixtures_df.columns and 'Date' not in fixtures_df.columns:
+            fixtures_df.rename(columns={'date': 'Date'}, inplace=True)
+        fixtures_df['Date'] = pd.to_datetime(fixtures_df['Date'], errors='coerce')
+        return df_historical, fixtures_df
+    except Exception as e:
+        st.error(f"❌ Failed to load prediction data: {e}")
+        return None, None
+
+
+def safe_feature_computation(historical_df, home_team, away_team, match_date, league_code='E0'):
+    """Use the exact same function as main.py"""
+    try:
+        from src.h2h_form import compute_match_features
+        base_features = compute_match_features(
+            historical_df=historical_df,
+            home_team=home_team,
+            away_team=away_team,
+            match_date=match_date,
+            league_code=league_code,
+            include_odds=False
+        )
+        all_features = compute_match_features(
+            historical_df=historical_df,
+            home_team=home_team,
+            away_team=away_team,
+            match_date=match_date,
+            league_code=league_code,
+            include_odds=True
+        )
+        return base_features, all_features
+    except Exception as e:
+        st.sidebar.warning(f"❌ Feature computation failed for {home_team} vs {away_team}: {e}")
+        return {}, {}
+
+
+# =============================================================================
+# EXISTING UI FUNCTIONS (UNCHANGED)
+# =============================================================================
 
 def extract_country_from_league(league_name):
-    """Extract country name from league name."""
     league_country_map = {
         'Premier League': 'England',
         'Championship': 'England',
@@ -176,21 +290,17 @@ def extract_country_from_league(league_name):
         'Primeira Liga': 'Portugal',
         'Scottish Premiership': 'Scotland'
     }
-    
     if league_name in league_country_map:
         return league_country_map[league_name]
-    
     for country in ['England', 'Spain', 'Italy', 'Germany', 'France', 'Netherlands', 'Portugal', 'Scotland']:
         if country.lower() in league_name.lower():
             return country
-    
     return 'Other'
 
+
 def style_table(df: pd.DataFrame) -> pd.DataFrame:
-    """Apply conditional formatting to league table with improved colors."""
     max_pos = df['Pos'].max()
-    relegation_start = max_pos - 2  # Bottom 3
-    
+    relegation_start = max_pos - 2
     def highlight_rows(row):
         styles = [''] * len(row)
         if row['Pos'] <= 6:
@@ -198,14 +308,12 @@ def style_table(df: pd.DataFrame) -> pd.DataFrame:
         elif row['Pos'] >= relegation_start:
             styles = ['background-color: #ffeaea; color: #000000'] * len(row)
         return styles
-    
     styled_df = df.style.apply(highlight_rows, axis=1)
     styled_df = styled_df.set_properties(**{
         'font-size': '14px',
         'font-family': 'Arial, sans-serif',
         'text-align': 'center'
     })
-    
     styled_df = styled_df.format({
         'Pos': '{:.0f}',
         'P': '{:.0f}',
@@ -218,16 +326,14 @@ def style_table(df: pd.DataFrame) -> pd.DataFrame:
         'Pts': '{:.0f}',
         'Form': '{:.0f}'
     })
-    
     return styled_df
 
+
 def create_metrics_cards(league_df):
-    """Create key metrics cards for the league."""
     total_teams = len(league_df)
     matches_per_team = league_df['P'].iloc[0]
     avg_goals_per_game = (league_df['GF'].sum() + league_df['GA'].sum()) / (league_df['P'].sum() / 2)
     avg_points = league_df['Pts'].mean()
-    
     cols = st.columns(5)
     with cols[0]:
         st.metric("Total Teams", total_teams)
@@ -241,33 +347,27 @@ def create_metrics_cards(league_df):
     with cols[4]:
         st.metric("Avg Points/Team", f"{avg_points:.1f}")
 
+
 def create_goal_difference_bars(league_df):
-    """Create goal difference bar chart."""
     league_df = league_df.sort_values('GD', ascending=True)
-    fig = px.bar(league_df, y='Team', x='GD', 
-                 color='GD',
-                 color_continuous_scale='RdYlGn')
+    fig = px.bar(league_df, y='Team', x='GD', color='GD', color_continuous_scale='RdYlGn')
     fig.update_layout(height=400, yaxis={'categoryorder':'total ascending'})
     return fig
 
+
 def create_form_analysis(league_df):
-    """Analyze and display recent form from Form column."""
     form_stats = []
-    
     for _, team in league_df.iterrows():
         form_string = str(team['Form']).strip()
-        
         try:
             form_points = int(float(form_string))
         except (ValueError, TypeError):
             form_points = 0
-        
         remaining_points = form_points
         wins = min(remaining_points // 3, 5)
         remaining_points -= wins * 3
         draws = min(remaining_points, 5 - wins)
         losses = 5 - wins - draws
-        
         form_stats.append({
             'Team': team['Team'],
             'Wins': wins,
@@ -276,218 +376,26 @@ def create_form_analysis(league_df):
             'Form_Points': form_points,
             'Form_String': form_string
         })
-    
     form_df = pd.DataFrame(form_stats)
     return form_df.sort_values('Form_Points', ascending=False)
 
-# =============================================================================
-# PREDICTION TAB FUNCTIONS 
-# =============================================================================  
-def load_models():
-    """Load trained models and feature columns using main.py structure."""
-    MODEL_DIR = PROJECT_ROOT / "model"
-    
-    if not MODEL_DIR.exists():
-        st.error(f"Model directory not found: {MODEL_DIR}")
-        return None
-    
-    required_files = {
-        'hda': "football_model_hda.pkl",
-        'gg': "football_model_gg.pkl", 
-        'over25': "football_model_over25.pkl",
-        'feature_cols': "feature_columns.pkl",
-        'value_map': "value_alert_map.pkl"
-    }
-    
-    # Check for missing files
-    missing_files = []
-    for key, filename in required_files.items():
-        if not (MODEL_DIR / filename).exists():
-            missing_files.append(filename)
-    
-    if missing_files:
-        st.error(f"Missing model files: {', '.join(missing_files)}")
-        return None
-    
-    try:
-        models = {}
-        for key, filename in required_files.items():
-            models[key] = joblib.load(MODEL_DIR / filename)
-        
-        st.sidebar.success(f"✅ Loaded {len(models)} models")
-        return models
-    except Exception as e:
-        st.error(f"Failed to load models: {e}")
-        return None
-
-def get_market_baseline(my_prob, value_map):
-    """Get market baseline for value detection - matches main.py logic."""
-    bins = np.arange(0, 1.05, 0.05)
-    bin_idx = np.digitize([my_prob], bins) - 1
-    if bin_idx[0] >= len(bins) - 1:
-        bin_idx[0] = len(bins) - 2
-    bin_key = pd.Interval(bins[bin_idx[0]], bins[bin_idx[0] + 1], closed='right')
-    return value_map.get(bin_key, my_prob)
-
-def should_send_tip(hda_proba, gg_proba, over25_proba, edge):
-    """Use the exact same logic as main.py for signal detection."""
-    home_win, draw, away_win = hda_proba
-    
-    hda_clear = (home_win >= 0.52) or (away_win >= 0.52) or (draw >= 0.35)
-    gg_clear = (gg_proba >= 0.54) or (gg_proba <= 0.32)
-    ou_clear = (over25_proba >= 0.54) or (over25_proba <= 0.32)
-    strong_edge = edge >= 0.02
-    
-    result = hda_clear or gg_clear or ou_clear or strong_edge
-    
-    # Log why signal was triggered
-    reasons = []
-    if result:
-        if home_win >= 0.48: reasons.append(f"Home win {home_win:.1%} >= 48%")
-        if away_win >= 0.48: reasons.append(f"Away win {away_win:.1%} >= 48%") 
-        if draw >= 0.35: reasons.append(f"Draw {draw:.1%} >= 35%")
-        if gg_proba >= 0.52: reasons.append(f"BTTS Yes {gg_proba:.1%} >= 52%")
-        if gg_proba <= 0.32: reasons.append(f"BTTS No {gg_proba:.1%} <= 32%")
-        if over25_proba >= 0.52: reasons.append(f"Over 2.5 {over25_proba:.1%} >= 52%")
-        if over25_proba <= 0.32: reasons.append(f"Under 2.5 {over25_proba:.1%} <= 32%")
-        if edge >= 0.01: reasons.append(f"Edge {edge:.1%} >= 1%")
-    else:
-        reasons = ["No criteria met"]
-    
-    return result, reasons
-
-def get_best_signal(hda_proba, gg_proba, over25_proba, edge):
-    """Determine the best signal based on main.py criteria."""
-    home_win, draw, away_win = hda_proba
-    
-    signals = []
-    
-    # HDA signals (using main.py thresholds)
-    if home_win >= 0.48:
-        signals.append(('🟢 HOME (Strong Home Favorite)', home_win, 'hda'))
-    if away_win >= 0.48:
-        signals.append(('🔵 AWAY (Strong Away Win)', away_win, 'hda'))
-    if draw >= 0.35:
-        signals.append(('🟡 DRAW (High Draw Probability)', draw, 'hda'))
-    
-    # GG signals
-    if gg_proba >= 0.52:
-        signals.append(('🟢 GG (Both Teams to Score)', gg_proba, 'gg'))
-    elif gg_proba <= 0.32:
-        signals.append(('🔴 NG (No Goals Expected)', 1-gg_proba, 'gg'))
-    
-    # Over/Under signals
-    if over25_proba >= 0.52:
-        signals.append(('🟢 OVER 2.5 (High-Scoring Game)', over25_proba, 'ou'))
-    elif over25_proba <= 0.32:
-        signals.append(('🔴 UNDER 2.5 (Low-Scoring Game)', 1-over25_proba, 'ou'))
-    
-    # Edge-based signals
-    if edge >= 0.01:
-        best_hda = max([('🏠 Home', home_win), ('🤝 Draw', draw), ('🚌 Away', away_win)], key=lambda x: x[1])
-        signals.append((f'💰 {best_hda[0]} (Value)', best_hda[1], 'value'))
-    
-    if signals:
-        best_signal = max(signals, key=lambda x: x[1])
-        return best_signal[0]
-    else:
-        return "📊 No Clear Signal"
-
-def load_prediction_data():
-    """Load historical and fixtures data for predictions using main.py paths."""
-    DATA_DIR = PROJECT_ROOT / "data"
-    
-    historical_file = DATA_DIR / "cleaned_historical_data.csv"
-    fixtures_file = DATA_DIR / "fixtures_data.csv"
-    
-    if not historical_file.exists():
-        st.error(f"❌ Historical data file not found: {historical_file}")
-        return None, None
-    
-    if not fixtures_file.exists():
-        st.error(f"❌ Fixtures data file not found: {fixtures_file}")
-        return None, None
-    
-    try:
-        df_historical = pd.read_csv(historical_file)
-        fixtures_df = pd.read_csv(fixtures_file)
-        
-        # Handle date conversion like main.py
-        df_historical['Date'] = pd.to_datetime(df_historical['Date'], errors='coerce')
-        df_historical['Date'] = df_historical['Date'].dt.tz_localize(None)
-        
-        # Handle fixtures date columns
-        if 'Date' in fixtures_df.columns:
-            fixtures_df['Date'] = pd.to_datetime(fixtures_df['Date'], errors='coerce')
-        elif 'date' in fixtures_df.columns:
-            fixtures_df['Date'] = pd.to_datetime(fixtures_df['date'], errors='coerce')
-        else:
-            fixtures_df['Date'] = pd.NaT
-        # Ensure tz-naive
-        fixtures_df['Date'] = fixtures_df['Date'].dt.tz_localize(None)
-        
-        st.sidebar.success(f"✅ Loaded {len(df_historical)} historical records")
-        st.sidebar.success(f"✅ Loaded {len(fixtures_df)} fixtures")
-        return df_historical, fixtures_df
-        
-    except Exception as e:
-        st.error(f"Failed to load prediction data: {e}")
-        return None, None
-
-def safe_feature_computation(historical_df, home_team, away_team, match_date, league_code='E0'):
-    """Safely compute match features using the same function as main.py."""
-    try:
-        # Import the exact same function used in main.py
-        from features.h2h_form import compute_match_features
-        
-        # Use the same function signature as main.py
-        features = compute_match_features(
-            historical_df=historical_df,
-            home_team=home_team,
-            away_team=away_team,
-            match_date=match_date,
-            league_code=league_code
-        )
-        
-        # Convert features dict to DataFrame for model input
-        feature_df = pd.DataFrame([features])
-        
-        return features, feature_df
-    except Exception as e:
-        st.sidebar.warning(f"❌ Feature computation failed for {home_team} vs {away_team}: {e}")
-        # Return empty features and dataframe
-        return {}, pd.DataFrame()
 
 def create_predictions_table(predictions):
-    """Create a comprehensive table format for predictions."""
     if not predictions:
         return None
-    
     df = pd.DataFrame(predictions)
-    
-    # Format for display
-    display_df = df.copy()
-    display_df['Date'] = pd.to_datetime(df['Date']).dt.strftime('%m/%d %H:%M')
-    display_df['Match'] = df['home_team'] + ' vs ' + df['away_team']
-    display_df['League'] = df['league']
-    
-    # Format probabilities as percentages
+    df['Date'] = pd.to_datetime(df['Date']).dt.strftime('%m/%d %H:%M')
+    df['Match'] = df['home_team'] + ' vs ' + df['away_team']
+    df['League'] = df['league']
     prob_columns = ['hda_home', 'hda_draw', 'hda_away', 'gg_yes', 'over25']
     for col in prob_columns:
-        display_df[col] = display_df[col].apply(lambda x: f"{x:.1%}")
-    
-    # Add edge information
-    display_df['Edge'] = df['edge'].apply(lambda x: f"{x:+.1%}")
-    
-    # Select and order columns for display
+        df[col] = df[col].apply(lambda x: f"{x:.1%}")
+    df['Edge'] = df['confidence'].apply(lambda x: f"{x:+.1%}")
     final_columns = [
         'Date', 'Match', 'League', 'hda_home', 'hda_draw', 'hda_away', 
         'gg_yes', 'over25', 'Edge', 'Signal', 'Signal_Reasons'
     ]
-    
-    display_df = display_df[final_columns]
-    
-    # Rename columns for better readability
+    display_df = df[final_columns]
     column_names = {
         'Date': '📅 Date',
         'Match': '⚽ Match',
@@ -497,248 +405,173 @@ def create_predictions_table(predictions):
         'hda_away': '🚌 Away %',
         'gg_yes': '⚽ BTTS %',
         'over25': '📈 Over 2.5 %',
-        'Edge': '💰 Edge',
+        'Edge': '💪 Confidence',
         'Signal': '🎯 Signal',
         'Signal_Reasons': '🔍 Why?'
     }
-    
     display_df = display_df.rename(columns=column_names)
     return display_df
 
+
 def style_predictions_table(df):
-    """Apply styling to the predictions table with better signal highlighting."""
     def color_signal(val):
         if 'No Clear Signal' in val:
             return 'background-color: #f8f9fa; color: #6c757d;'
-        elif '🟢' in val or '💰' in val:
+        elif '🟢' in val or '🔵' in val or '🟡' in val:
             return 'background-color: #e8f5e8; color: #000000; font-weight: bold'
-        elif '🔵' in val or '🟡' in val:
+        elif '⚽' in val or '📈' in val:
             return 'background-color: #fff3cd; color: #000000; font-weight: bold'
-        elif '🔴' in val:
+        elif '🚫' in val or '📉' in val:
             return 'background-color: #ffeaea; color: #000000; font-weight: bold'
         else:
             return ''
-    
     def color_edge(val):
         try:
             edge_val = float(val.strip('%'))
             if edge_val > 0:
                 return 'background-color: #e8f5e8; color: #000000; font-weight: bold'
-            elif edge_val < 0:
-                return 'background-color: #ffeaea; color: #000000;'
             else:
                 return ''
         except:
             return ''
-    
     styled_df = df.style.applymap(color_signal, subset=['🎯 Signal'])
-    styled_df = styled_df.applymap(color_edge, subset=['💰 Edge'])
-    
+    styled_df = styled_df.applymap(color_edge, subset=['💪 Confidence'])
     styled_df = styled_df.set_properties(**{
         'font-size': '12px',
         'font-family': 'Arial, sans-serif',
         'text-align': 'center'
     })
-    
     return styled_df
 
+
 def prediction_tab():
-    """Refactored prediction tab using main.py logic."""
     st.subheader("AI-Powered Match Predictions")
     st.markdown("Using the **exact same signal logic** as the Telegram bot")
-    
-    # Configuration - removed confidence slider, fixed at 48%
-    MIN_CONFIDENCE = 48  # Fixed minimum confidence
-    
+
     col1, col2 = st.columns(2)
     with col1:
         days_ahead = st.selectbox("Days ahead to predict", [1, 2, 3, 4, 5, 7], index=2)
     with col2:
-        show_all = st.checkbox("Show all matches", value=True, help="Show all matches, not just signals")
-    
-    # Load prediction data
+        show_all = st.checkbox("Show all matches", value=True)
+
     with st.spinner("Loading prediction data..."):
         df_historical, fixtures_df = load_prediction_data()
-    
     if df_historical is None or fixtures_df is None:
         st.error("Please ensure both historical data and fixtures data are available.")
         return
-    
-    # Load models
+
     with st.spinner("Loading AI models..."):
         models = load_models()
-    
     if models is None:
-        st.error("Failed to load prediction models. Please ensure models are trained and available.")
+        st.error("Failed to load prediction models.")
         return
-    
-    # Filter fixtures for today + specified days ahead
-    today = pd.Timestamp.now().normalize()  # tz-naive
+
+    today = pd.Timestamp.now().normalize()
     end_date = today + timedelta(days=days_ahead)
-    
     upcoming = fixtures_df[
         (fixtures_df['Date'].dt.date >= today.date()) & 
         (fixtures_df['Date'].dt.date <= end_date.date())
     ].copy()
-    
+
     if upcoming.empty:
         st.info(f"🎉 No upcoming matches found in the next {days_ahead} days.")
         return
-    
+
     upcoming = upcoming.sort_values('Date').reset_index(drop=True)
-    
     st.success(f"📊 Found **{len(upcoming)} matches** in the next {days_ahead} days")
-    
-    # Generate predictions
+
     if st.button("🎯 Generate Predictions", type="primary", use_container_width=True):
         predictions = []
         signal_count = 0
-        
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
+
         for idx, match in upcoming.iterrows():
             home_team = match.get('home_team', 'Unknown')
             away_team = match.get('away_team', 'Unknown')
-            
             status_text.text(f"Processing {idx+1}/{len(upcoming)}: {home_team} vs {away_team}")
-            
+
             try:
-                # Compute features using the same function as main.py
-                features, feature_df = safe_feature_computation(
+                base_features, all_features = safe_feature_computation(
                     historical_df=df_historical,
                     home_team=home_team,
                     away_team=away_team,
                     match_date=match['Date'],
                     league_code=match.get('league_code', 'E0')
                 )
-                
-                # Skip if feature computation failed
-                if feature_df.empty:
+                if not base_features or not all_features:
                     continue
-                
-                # Ensure all feature columns are present (like main.py)
-                if 'feature_cols' in models:
-                    X = feature_df.reindex(columns=models['feature_cols'], fill_value=0)
-                else:
-                    X = feature_df.copy()
-                
-                # Get predictions (same as main.py)
-                hda_proba = models['hda'].predict_proba(X)[0]
-                gg_proba = models['gg'].predict_proba(X)[0][1]
-                over25_proba = models['over25'].predict_proba(X)[0][1]
-                
-                # Calculate edge (same as main.py)
-                home_win_prob = hda_proba[0]
-                market_baseline = get_market_baseline(home_win_prob, models.get('value_map', {}))
-                edge = home_win_prob - market_baseline
-                
-                # Determine if we should send tip (same logic as main.py)
-                should_tip, signal_reasons = should_send_tip(hda_proba, gg_proba, over25_proba, edge)
-                
-                # Get best signal
-                signal = get_best_signal(hda_proba, gg_proba, over25_proba, edge)
-                
-                if should_tip:
+
+                X_hda = pd.DataFrame([base_features])[models['hda_features']].fillna(0).values
+                X_btts = pd.DataFrame([all_features])[models['btts_features']].fillna(0).values
+                X_over25 = pd.DataFrame([all_features])[models['over25_features']].fillna(0).values
+
+                hda_proba = predict_with_ensemble(models['hda'], X_hda, task='multiclass')[0]
+                btts_proba = predict_with_ensemble(models['btts'], X_btts, task='binary')[0]
+                over25_proba = predict_with_ensemble(models['over25'], X_over25, task='binary')[0]
+
+                tip_type, tip_text, confidence, should_send, secondary_tips = select_best_tip(
+                    hda_proba, btts_proba, over25_proba
+                )
+
+                signal = tip_text if should_send else "📊 No Clear Signal"
+                reasons = [f"Confidence: {confidence:.1%}"] if should_send else ["Below threshold"]
+
+                if should_send:
                     signal_count += 1
-                
-                # Apply fixed confidence filter (52%)
-                max_prob = max(hda_proba[0], hda_proba[1], hda_proba[2], gg_proba, over25_proba)
-                meets_confidence = (max_prob * 100) >= MIN_CONFIDENCE
-                
-                prediction_data = {
+
+                predictions.append({
                     'Date': match['Date'],
                     'home_team': home_team,
                     'away_team': away_team,
-                    'league': match.get('league_name', match.get('league', 'Unknown')),
+                    'league': match.get('league_name', 'Unknown'),
                     'hda_home': hda_proba[0],
                     'hda_draw': hda_proba[1],
                     'hda_away': hda_proba[2],
-                    'gg_yes': gg_proba,
+                    'gg_yes': btts_proba,
                     'over25': over25_proba,
-                    'edge': edge,
-                    'should_tip': should_tip,
+                    'confidence': confidence,
                     'Signal': signal,
-                    'Signal_Reasons': ", ".join(signal_reasons),
-                    'Meets_Confidence': meets_confidence
-                }
-                
-                # Only add to predictions based on filters
-                if show_all or (should_tip and meets_confidence):
-                    predictions.append(prediction_data)
-                
+                    'Signal_Reasons': ", ".join(reasons)
+                })
+
             except Exception as e:
                 st.sidebar.error(f"❌ Prediction failed for {home_team} vs {away_team}: {e}")
                 continue
-            
+
             progress_bar.progress((idx + 1) / len(upcoming))
-        
+
         progress_bar.empty()
         status_text.empty()
-        
+
         if predictions:
-            # Enhanced Summary Statistics
             st.markdown("### 📊 Prediction Summary")
-            
-            summary_col1, summary_col2, summary_col3, summary_col4, summary_col5 = st.columns(5)
-            
+            summary_col1, summary_col2, summary_col3 = st.columns(3)
             with summary_col1:
-                st.metric(
-                    "Total Analyzed", 
-                    len(upcoming),
-                    help="Number of matches processed"
-                )
+                st.metric("Total Analyzed", len(upcoming))
             with summary_col2:
-                st.metric(
-                    "Signals Found", 
-                    signal_count,
-                    delta=f"{signal_count/len(upcoming):.1%}" if len(upcoming) > 0 else "0%",
-                    delta_color="normal" if signal_count > 0 else "off",
-                    help="High-confidence betting signals detected"
-                )
+                st.metric("Signals Found", signal_count)
             with summary_col3:
-                st.metric(
-                    "Displayed", 
-                    len(predictions),
-                    help="Matches shown in the table below"
-                )
-            with summary_col4:
-                signal_rate = signal_count/len(upcoming) if len(upcoming) > 0 else 0
-                st.metric(
-                    "Signal Rate", 
-                    f"{signal_rate:.1%}",
-                    help="Percentage of matches with betting signals"
-                )
-            with summary_col5:
-                avg_confidence = np.mean([max(p['hda_home'], p['hda_draw'], p['hda_away']) for p in predictions]) if predictions else 0
-                st.metric(
-                    "Avg Confidence", 
-                    f"{avg_confidence:.1%}",
-                    help="Average maximum probability across displayed matches"
-                )
-            
+                signal_rate = signal_count / len(upcoming) if len(upcoming) > 0 else 0
+                st.metric("Signal Rate", f"{signal_rate:.1%}")
+
             st.markdown("---")
-            
-            # Quick insights based on the results
-            if signal_count == 0:
-                st.info("🔍 **Insight**: No strong signals detected. Consider adjusting confidence thresholds or check back later.")
-            elif signal_count / len(upcoming) < 0.1:
-                st.warning("⚠️ **Insight**: Low signal rate detected. Markets may be efficient today.")
-            elif signal_count / len(upcoming) > 0.3:
-                st.success("**Insight**: High signal rate! Multiple betting opportunities identified.")
-            
-            # Display the predictions table
-            st.markdown("### Match Predictions & Signals")
-            
             predictions_table = create_predictions_table(predictions)
             if predictions_table is not None:
                 styled_table = style_predictions_table(predictions_table)
-                
-                st.dataframe(
-                    styled_table,
-                    use_container_width=True,
-                    height=min(600, (len(predictions_table) + 1) * 35 + 3)
-                )
+                st.dataframe(styled_table, use_container_width=True)
+
+
+def load_data():
+    ensure_league_data_fresh()
+    df = pd.read_csv(DATA_FILE)
+    required_cols = {'league_name', 'Pos', 'Team', 'P', 'W', 'D', 'L', 'GF', 'GA', 'GD', 'Pts', 'Form'}
+    if not required_cols.issubset(df.columns):
+        missing = required_cols - set(df.columns)
+        st.error(f"Missing columns in data: {missing}")
+        st.stop()
+    return df
+
 
 def main():
     st.markdown("""
@@ -748,12 +581,9 @@ def main():
         }
     </style>
     """, unsafe_allow_html=True)
-    
     st.title("Scoresignal Football Analytics Dashboard")
     
-    # Header
     header_col1, header_col2 = st.columns([3, 2])
-    
     with header_col1:
         st.markdown(
             """
@@ -770,7 +600,6 @@ def main():
             """,
             unsafe_allow_html=True
         )
-
         st.markdown(
             """
             <p style="font-size:15px; line-height:1.5; color:#444;">
@@ -782,74 +611,52 @@ def main():
             """,
             unsafe_allow_html=True
         )
-    
-    # Create tabs
+
     tab1, tab2 = st.tabs(["League Standings", "Match Predictions"])
-    
-    # TAB 1: LEAGUE STANDINGS (UNCHANGED)
+
     with tab1:
         df = load_data()
-        
         if 'country' not in df.columns:
             df['country'] = df['league_name'].apply(extract_country_from_league)
-        
         col1, col2 = st.columns(2)
-        
         with col1:
             countries = sorted(df['country'].unique())
             selected_country = st.selectbox("Select Country", ["All"] + countries, index=0, key="standings_country")
-        
         with col2:
             if selected_country == "All":
                 available_leagues = sorted(df['league_name'].unique())
             else:
                 available_leagues = sorted(df[df['country'] == selected_country]['league_name'].unique())
-            
             selected_league = st.selectbox("Select League", available_leagues, index=0, key="standings_league")
             if st.button("🔄 Force Refresh League Data", key="refresh_data"):
                 if DATA_FILE.exists():
-                    DATA_FILE.unlink()  # Delete to force regeneration
-                st.cache_data.clear()  # Clear Streamlit cache
+                    DATA_FILE.unlink()
+                st.cache_data.clear()
                 st.rerun()
-        
-        league_df = df[df['league_name'] == selected_league].copy()
-        
+
         league_df = df[df['league_name'] == selected_league].copy()
         league_df = league_df.sort_values('Pos').reset_index(drop=True)
-        
         if not league_df.empty:
             country_name = league_df['country'].iloc[0]
             st.subheader(f"{selected_league} - {country_name}")
-            
             create_metrics_cards(league_df)
-            
             st.markdown("### League Standings")
             display_cols = ['Pos', 'Team', 'P', 'W', 'D', 'L', 'GF', 'GA', 'GD', 'Pts', 'Form']
             styled_df = style_table(league_df[display_cols])
             num_teams = len(league_df)
             table_height = min(600, (num_teams + 1) * 35 + 3)
-            st.dataframe(
-                styled_df, 
-                use_container_width=True,
-                hide_index=True,
-                height=table_height
-            )
+            st.dataframe(styled_df, use_container_width=True, hide_index=True, height=table_height)
 
             st.markdown("---")
-            
             col_analytics1, col_analytics2 = st.columns(2)
-            
             with col_analytics1:
                 st.markdown("### Goal Difference by Team")
                 st.plotly_chart(create_goal_difference_bars(league_df), use_container_width=True)
-            
             with col_analytics2:
                 st.markdown("### Recent Form (Last 5 Games)")
                 form_df = create_form_analysis(league_df)
-                
                 top_form_teams = form_df.head(3)
                 bottom_form_teams = form_df.tail(3)
-                
                 st.markdown("**Best Form:**")
                 form_cols1 = st.columns(3)
                 for idx, (_, team) in enumerate(top_form_teams.iterrows()):
@@ -859,7 +666,6 @@ def main():
                             f"{team['Form_Points']} pts",
                             delta=f"{team['Wins']}W-{team['Draws']}D-{team['Losses']}L"
                         )
-                
                 st.markdown("**Worst Form:**")
                 form_cols2 = st.columns(3)
                 for idx, (_, team) in enumerate(bottom_form_teams.iterrows()):
@@ -870,14 +676,13 @@ def main():
                             delta=f"{team['Wins']}W-{team['Draws']}D-{team['Losses']}L",
                             delta_color="inverse"
                         )
-    
-    # TAB 2: MATCH PREDICTIONS (REFACTORED)
+
     with tab2:
         prediction_tab()
-    
-    # Footer
+
     st.markdown("---")
     st.caption("Data updated weekly | Source: football-data.co.uk | Predictions with machine learning")
+
 
 if __name__ == "__main__":
     main()
