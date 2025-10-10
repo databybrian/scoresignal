@@ -14,8 +14,7 @@ RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
 
 COPY . .
 
-# Ensure dirs exist
 RUN mkdir -p model data src
 
-# Start webhook (Railway sets $PORT)
-CMD gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 60 bot.webhook_handler:app
+# Use shell so $PORT expands correctly
+CMD sh -c "gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 60 bot.webhook_handler:app"

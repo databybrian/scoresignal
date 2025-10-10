@@ -4,6 +4,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app:/app/src \
     LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 
+# Install system libs required by LightGBM / other compiled libs
 RUN apt-get update && apt-get install -y \
     libgomp1 libpq5 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -16,5 +17,5 @@ COPY . .
 
 RUN mkdir -p model data src
 
-# Shell form for $PORT expansion
-CMD streamlit run streamlit_app/app.py --server.address=0.0.0.0 --server.port=$PORT
+# Shell form so $PORT is expanded by a shell at runtime
+CMD sh -c "streamlit run app.py --server.address=0.0.0.0 --server.port=$PORT"

@@ -1,20 +1,27 @@
 FROM python:3.12-slim
 
+# Avoid writing .pyc files and ensure reliable output
 ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app:/app/src \
     LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 
+# Install system libraries required for LightGBM & networking
 RUN apt-get update && apt-get install -y \
     libgomp1 libpq5 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Install dependencies first (Docker cache optimization)
 COPY requirements.txt .
 RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
 
+# Copy project files
 COPY . .
 
+# Ensure required folders exist (optional if repo already contains them)
 RUN mkdir -p model data raw_data src scripts
 
-# Worker runs indefinitely (main.py has its own scheduler)
+# Start background worker
 CMD ["python", "main.py"]
