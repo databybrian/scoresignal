@@ -17,7 +17,9 @@ COPY . .
 RUN mkdir -p model data src
 
 # Use shell so $PORT expands correctly
-CMD sh -c "gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 60 'bot.webhook_handler:app'"
+CMD sh -c "gunicorn --bind 0.0.0.0:${PORT:=8080} --workers 2 --timeout 60 'bot.webhook_handler:app'"
+
+
 
 
 
