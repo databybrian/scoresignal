@@ -1,0 +1,21 @@
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app:/app/src \
+    LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+
+RUN apt-get update && apt-get install -y \
+    libgomp1 libpq5 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
+
+COPY . .
+
+# Ensure dirs exist
+RUN mkdir -p model data src
+
+# Start webhook (Railway sets $PORT)
+CMD gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 60 bot.webhook_handler:app

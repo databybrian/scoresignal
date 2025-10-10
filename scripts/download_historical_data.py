@@ -12,7 +12,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.data_utils import format_date_column, essential_columns
 from src.data_pipeline import get_last_15_seasons
-from bot.config import current_season  # Only import what you need
 
 # Configuration
 BASE_URL = "https://www.football-data.co.uk/mmz4281"  # Fixed extra spaces

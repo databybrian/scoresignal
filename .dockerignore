@@ -23,7 +23,7 @@ __pycache__/
 # keep model/ if you're loading pre-trained models!
 # So we EXCLUDE data/, but NOT model/
 data/
-raw_data/
+raw_data/combined_historical_data.csv
 logs/
 *.log
 *.sqlite3
