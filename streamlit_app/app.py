@@ -1,11 +1,9 @@
-# streamlit_app/app.py
+# streamlit_app/app.py (Modified for compactness & Railway compatibility)
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 from pathlib import Path
-import joblib
 import sys
-import numpy as np
 from datetime import datetime, timedelta
 
 # Set page config
@@ -16,63 +14,63 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS for compact design
+# Custom CSS for compact design - MINIMAL PADDING
 st.markdown("""
     <style>
-        /* Reduce top padding */
+        /* Drastically reduce top/bottom padding */
         .block-container {
-            padding-top: 1rem;
-            padding-bottom: 0rem;
+            padding-top: 0.5rem !important;
+            padding-bottom: 0.5rem !important;
             max-width: 100%;
         }
         /* Compact header */
         h1 {
-            font-size: 1.8rem !important;
-            margin-bottom: 0.5rem !important;
+            font-size: 1.6rem !important;
+            margin-bottom: 0.3rem !important;
             padding-top: 0 !important;
         }
         h2 {
-            font-size: 1.4rem !important;
-            margin-top: 0.5rem !important;
-            margin-bottom: 0.5rem !important;
+            font-size: 1.2rem !important;
+            margin-top: 0.3rem !important;
+            margin-bottom: 0.3rem !important;
         }
         h3 {
-            font-size: 1.2rem !important;
-            margin-top: 0.5rem !important;
-            margin-bottom: 0.5rem !important;
+            font-size: 1.1rem !important;
+            margin-top: 0.3rem !important;
+            margin-bottom: 0.3rem !important;
         }
         /* Compact metrics */
         [data-testid="stMetricValue"] {
-            font-size: 1.2rem;
+            font-size: 1.0rem;
         }
         [data-testid="stMetricLabel"] {
-            font-size: 0.8rem;
+            font-size: 0.7rem;
         }
         /* Compact tables */
         .dataframe {
-            font-size: 13px !important;
+            font-size: 12px !important;
         }
-        /* Remove extra spacing */
+        /* Minimize spacing between elements */
         .element-container {
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.3rem !important;
         }
         /* Compact tabs */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 1rem;
+            gap: 0.8rem;
             padding-top: 0;
         }
         .stTabs [data-baseweb="tab"] {
-            padding: 0.5rem 1rem;
-            font-size: 0.95rem;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.9rem;
         }
         /* Compact buttons */
         .stButton > button {
-            padding: 0.4rem 1rem;
-            font-size: 0.9rem;
+            padding: 0.3rem 0.8rem;
+            font-size: 0.85rem;
         }
         /* Compact selectbox */
         .stSelectbox {
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.3rem;
         }
         /* Hide Streamlit branding */
         #MainMenu {visibility: hidden;}
@@ -88,12 +86,10 @@ DATA_FILE = PROJECT_ROOT / "data" / "current_season_leagues_table.csv"
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-
 def file_age_days(path: Path) -> float:
     if not path.exists():
         return float("inf")
     return (datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)).total_seconds() / 86400.0
-
 
 def ensure_league_data_fresh():
     """Ensure current_season_leagues_table.csv exists and is <=7 days old."""
@@ -110,173 +106,6 @@ def ensure_league_data_fresh():
         except Exception as e:
             st.error(f"❌ Failed to refresh league data: {e}")
             st.stop()
-
-
-# =============================================================================
-# PREDICTION LOGIC (SYNCED WITH main.py)
-# =============================================================================
-
-def load_models():
-    """Load ensemble models exactly as in main.py"""
-    MODEL_DIR = PROJECT_ROOT / "model"
-    if not MODEL_DIR.exists():
-        st.error(f"Model directory not found: {MODEL_DIR}")
-        return None
-
-    required_files = [
-        "ensemble_hda.pkl",
-        "ensemble_btts.pkl",
-        "ensemble_over25.pkl",
-        "feature_metadata.pkl"
-    ]
-    
-    for f in required_files:
-        if not (MODEL_DIR / f).exists():
-            st.error(f"Missing model file: {f}")
-            return None
-
-    try:
-        models = {}
-        models['hda'] = joblib.load(MODEL_DIR / "ensemble_hda.pkl")
-        models['btts'] = joblib.load(MODEL_DIR / "ensemble_btts.pkl")
-        models['over25'] = joblib.load(MODEL_DIR / "ensemble_over25.pkl")
-        feature_metadata = joblib.load(MODEL_DIR / "feature_metadata.pkl")
-        models.update(feature_metadata)
-        st.sidebar.success("✅ Loaded ensemble models (XGBoost + LightGBM + CatBoost)")
-        return models
-    except Exception as e:
-        st.error(f"Failed to load models: {e}")
-        return None
-
-
-def select_best_tip(hda_proba, btts_proba, over25_proba):
-    """
-    Exact copy from main.py
-    """
-    home_prob, draw_prob, away_prob = hda_proba
-    btts_yes = btts_proba
-    btts_no = 1 - btts_proba
-    over_prob = over25_proba
-    under_prob = 1 - over25_proba
-
-    hda_home_confidence = max(0, home_prob - 0.53)
-    hda_away_confidence = max(0, away_prob - 0.53)
-    hda_draw_confidence = max(0, draw_prob - 0.32)
-    btts_yes_confidence = max(0, btts_yes - 0.56)
-    btts_no_confidence = max(0, btts_no - 0.56)
-    over_confidence = max(0, over_prob - 0.56)
-    under_confidence = max(0, under_prob - 0.56)
-
-    tips = []
-    if hda_home_confidence > 0:
-        tips.append(('HDA_HOME', f"🟢 HOME WIN", home_prob, hda_home_confidence, 'primary'))
-    if hda_away_confidence > 0:
-        tips.append(('HDA_AWAY', f"🔵 AWAY WIN", away_prob, hda_away_confidence, 'primary'))
-    if hda_draw_confidence > 0:
-        tips.append(('HDA_DRAW', f"🟡 DRAW", draw_prob, hda_draw_confidence, 'secondary'))
-    if btts_yes_confidence > 0:
-        tips.append(('BTTS_YES', f"⚽ BOTH TEAMS TO SCORE (Yes)", btts_yes, btts_yes_confidence, 'primary'))
-    if btts_no_confidence > 0:
-        tips.append(('BTTS_NO', f"🚫 BOTH TEAMS TO SCORE (No)", btts_no, btts_no_confidence, 'secondary'))
-    if over_confidence > 0:
-        tips.append(('OVER25', f"📈 OVER 2.5 GOALS", over_prob, over_confidence, 'primary'))
-    if under_confidence > 0:
-        tips.append(('UNDER25', f"📉 UNDER 2.5 GOALS", under_prob, under_confidence, 'secondary'))
-
-    if not tips:
-        return None, None, 0, False, []
-
-    tips.sort(key=lambda x: x[3], reverse=True)
-    best_tip = tips[0]
-    tip_type, tip_text, probability, confidence, priority = best_tip
-    secondary_tips = [t for t in tips[1:3] if t[4] == 'secondary' or t[3] > 0.05]
-    return tip_type, tip_text, probability, True, secondary_tips
-
-
-def predict_with_ensemble(ensemble_models, X, task='multiclass'):
-    """Same as main.py"""
-    predictions = []
-    if task == 'multiclass':
-        predictions.append(ensemble_models['xgb'].predict_proba(X))
-        predictions.append(ensemble_models['lgb'].predict_proba(X))
-        predictions.append(ensemble_models['cat'].predict_proba(X))
-    else:
-        predictions.append(ensemble_models['xgb'].predict_proba(X)[:, 1])
-        predictions.append(ensemble_models['lgb'].predict_proba(X)[:, 1])
-        predictions.append(ensemble_models['cat'].predict_proba(X)[:, 1])
-    return np.mean(predictions, axis=0)
-
-
-def load_prediction_data():
-    """Load data, auto-generate if missing (like main.py)"""
-    DATA_DIR = PROJECT_ROOT / "data"
-    DATA_DIR.mkdir(exist_ok=True)
-
-    # Ensure historical data exists
-    if not (DATA_DIR / "cleaned_historical_data.csv").exists():
-        st.info("🔄 Generating historical data...")
-        from src.data_pipeline import ensure_historical_data_exists
-        ensure_historical_data_exists()
-
-    # Ensure fixtures exist
-    fixtures_file = DATA_DIR / "fixtures_data.csv"
-    from src.data_pipeline import needs_refresh
-    if not fixtures_file.exists() or needs_refresh(fixtures_file, days=7):
-        st.info("🔄 Fetching live fixtures...")
-        try:
-            from src.fetch_fixtures_live import fetch_and_save_fixtures
-            fetch_and_save_fixtures(str(fixtures_file))
-        except Exception as e:
-            st.warning(f"⚠️ Failed to fetch fixtures: {e}")
-            empty_df = pd.DataFrame(columns=[
-                'round', 'date', 'time', 'home_team', 'away_team',
-                'home_score', 'away_score', 'league_key', 'league_name', 'season'
-            ])
-            empty_df.to_csv(fixtures_file, index=False)
-
-    # Load data
-    try:
-        df_historical = pd.read_csv(DATA_DIR / "cleaned_historical_data.csv")
-        df_historical['Date'] = pd.to_datetime(df_historical['Date'], errors='coerce')
-        fixtures_df = pd.read_csv(fixtures_file)
-        if 'date' in fixtures_df.columns and 'Date' not in fixtures_df.columns:
-            fixtures_df.rename(columns={'date': 'Date'}, inplace=True)
-        fixtures_df['Date'] = pd.to_datetime(fixtures_df['Date'], errors='coerce')
-        return df_historical, fixtures_df
-    except Exception as e:
-        st.error(f"❌ Failed to load prediction data: {e}")
-        return None, None
-
-
-def safe_feature_computation(historical_df, home_team, away_team, match_date, league_code='E0'):
-    """Use the exact same function as main.py"""
-    try:
-        from src.h2h_form import compute_match_features
-        base_features = compute_match_features(
-            historical_df=historical_df,
-            home_team=home_team,
-            away_team=away_team,
-            match_date=match_date,
-            league_code=league_code,
-            include_odds=False
-        )
-        all_features = compute_match_features(
-            historical_df=historical_df,
-            home_team=home_team,
-            away_team=away_team,
-            match_date=match_date,
-            league_code=league_code,
-            include_odds=True
-        )
-        return base_features, all_features
-    except Exception as e:
-        st.sidebar.warning(f"❌ Feature computation failed for {home_team} vs {away_team}: {e}")
-        return {}, {}
-
-
-# =============================================================================
-# EXISTING UI FUNCTIONS (UNCHANGED)
-# =============================================================================
 
 def extract_country_from_league(league_name):
     league_country_map = {
@@ -297,7 +126,6 @@ def extract_country_from_league(league_name):
             return country
     return 'Other'
 
-
 def style_table(df: pd.DataFrame) -> pd.DataFrame:
     max_pos = df['Pos'].max()
     relegation_start = max_pos - 2
@@ -310,7 +138,7 @@ def style_table(df: pd.DataFrame) -> pd.DataFrame:
         return styles
     styled_df = df.style.apply(highlight_rows, axis=1)
     styled_df = styled_df.set_properties(**{
-        'font-size': '14px',
+        'font-size': '12px', # Smaller font
         'font-family': 'Arial, sans-serif',
         'text-align': 'center'
     })
@@ -328,7 +156,6 @@ def style_table(df: pd.DataFrame) -> pd.DataFrame:
     })
     return styled_df
 
-
 def create_metrics_cards(league_df):
     total_teams = len(league_df)
     matches_per_team = league_df['P'].iloc[0]
@@ -336,24 +163,22 @@ def create_metrics_cards(league_df):
     avg_points = league_df['Pts'].mean()
     cols = st.columns(5)
     with cols[0]:
-        st.metric("Total Teams", total_teams)
+        st.metric("Teams", total_teams, help="Total Teams in League") # Shorter label
     with cols[1]:
-        st.metric("Matches Played/Team", matches_per_team)
+        st.metric("Matches/Team", matches_per_team, help="Matches Played Per Team") # Shorter label
     with cols[2]:
         relegation_positions = f"{total_teams-2}-{total_teams}"
-        st.metric("Relegation Positions", relegation_positions)
+        st.metric("Relegation", relegation_positions, help="Positions 18-20 (or similar)") # Shorter label
     with cols[3]:
-        st.metric("Avg Goals/Game", f"{avg_goals_per_game:.2f}")
+        st.metric("Avg Goals/Game", f"{avg_goals_per_game:.2f}", help="Average Goals Scored Per Game") # Shorter label
     with cols[4]:
-        st.metric("Avg Points/Team", f"{avg_points:.1f}")
-
+        st.metric("Avg Points", f"{avg_points:.1f}", help="Average Points Per Team") # Shorter label
 
 def create_goal_difference_bars(league_df):
     league_df = league_df.sort_values('GD', ascending=True)
     fig = px.bar(league_df, y='Team', x='GD', color='GD', color_continuous_scale='RdYlGn')
-    fig.update_layout(height=400, yaxis={'categoryorder':'total ascending'})
+    fig.update_layout(height=350, yaxis={'categoryorder':'total ascending'}, margin=dict(l=0, r=0, t=30, b=0)) # Tighter margins
     return fig
-
 
 def create_form_analysis(league_df):
     form_stats = []
@@ -379,189 +204,6 @@ def create_form_analysis(league_df):
     form_df = pd.DataFrame(form_stats)
     return form_df.sort_values('Form_Points', ascending=False)
 
-
-def create_predictions_table(predictions):
-    if not predictions:
-        return None
-    df = pd.DataFrame(predictions)
-    df['Date'] = pd.to_datetime(df['Date']).dt.strftime('%m/%d %H:%M')
-    df['Match'] = df['home_team'] + ' vs ' + df['away_team']
-    df['League'] = df['league']
-    prob_columns = ['hda_home', 'hda_draw', 'hda_away', 'gg_yes', 'over25']
-    for col in prob_columns:
-        df[col] = df[col].apply(lambda x: f"{x:.1%}")
-    df['Edge'] = df['confidence'].apply(lambda x: f"{x:+.1%}")
-    final_columns = [
-        'Date', 'Match', 'League', 'hda_home', 'hda_draw', 'hda_away', 
-        'gg_yes', 'over25', 'Edge', 'Signal', 'Signal_Reasons'
-    ]
-    display_df = df[final_columns]
-    column_names = {
-        'Date': '📅 Date',
-        'Match': '⚽ Match',
-        'League': '🏆 League',
-        'hda_home': '🏠 Home %',
-        'hda_draw': '🤝 Draw %', 
-        'hda_away': '🚌 Away %',
-        'gg_yes': '⚽ BTTS %',
-        'over25': '📈 Over 2.5 %',
-        'Edge': '💪 Confidence',
-        'Signal': '🎯 Signal',
-        'Signal_Reasons': '🔍 Why?'
-    }
-    display_df = display_df.rename(columns=column_names)
-    return display_df
-
-
-def style_predictions_table(df):
-    def color_signal(val):
-        if 'No Clear Signal' in val:
-            return 'background-color: #f8f9fa; color: #6c757d;'
-        elif '🟢' in val or '🔵' in val or '🟡' in val:
-            return 'background-color: #e8f5e8; color: #000000; font-weight: bold'
-        elif '⚽' in val or '📈' in val:
-            return 'background-color: #fff3cd; color: #000000; font-weight: bold'
-        elif '🚫' in val or '📉' in val:
-            return 'background-color: #ffeaea; color: #000000; font-weight: bold'
-        else:
-            return ''
-    def color_edge(val):
-        try:
-            edge_val = float(val.strip('%'))
-            if edge_val > 0:
-                return 'background-color: #e8f5e8; color: #000000; font-weight: bold'
-            else:
-                return ''
-        except:
-            return ''
-    styled_df = df.style.applymap(color_signal, subset=['🎯 Signal'])
-    styled_df = styled_df.applymap(color_edge, subset=['💪 Confidence'])
-    styled_df = styled_df.set_properties(**{
-        'font-size': '12px',
-        'font-family': 'Arial, sans-serif',
-        'text-align': 'center'
-    })
-    return styled_df
-
-
-def prediction_tab():
-    st.subheader("AI-Powered Match Predictions")
-    st.markdown("Using the **exact same signal logic** as the Telegram bot")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        days_ahead = st.selectbox("Days ahead to predict", [1, 2, 3, 4, 5, 7], index=2)
-    with col2:
-        show_all = st.checkbox("Show all matches", value=True)
-
-    with st.spinner("Loading prediction data..."):
-        df_historical, fixtures_df = load_prediction_data()
-    if df_historical is None or fixtures_df is None:
-        st.error("Please ensure both historical data and fixtures data are available.")
-        return
-
-    with st.spinner("Loading AI models..."):
-        models = load_models()
-    if models is None:
-        st.error("Failed to load prediction models.")
-        return
-
-    today = pd.Timestamp.now().normalize()
-    end_date = today + timedelta(days=days_ahead)
-    upcoming = fixtures_df[
-        (fixtures_df['Date'].dt.date >= today.date()) & 
-        (fixtures_df['Date'].dt.date <= end_date.date())
-    ].copy()
-
-    if upcoming.empty:
-        st.info(f"🎉 No upcoming matches found in the next {days_ahead} days.")
-        return
-
-    upcoming = upcoming.sort_values('Date').reset_index(drop=True)
-    st.success(f"📊 Found **{len(upcoming)} matches** in the next {days_ahead} days")
-
-    if st.button("🎯 Generate Predictions", type="primary", use_container_width=True):
-        predictions = []
-        signal_count = 0
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-
-        for idx, match in upcoming.iterrows():
-            home_team = match.get('home_team', 'Unknown')
-            away_team = match.get('away_team', 'Unknown')
-            status_text.text(f"Processing {idx+1}/{len(upcoming)}: {home_team} vs {away_team}")
-
-            try:
-                base_features, all_features = safe_feature_computation(
-                    historical_df=df_historical,
-                    home_team=home_team,
-                    away_team=away_team,
-                    match_date=match['Date'],
-                    league_code=match.get('league_code', 'E0')
-                )
-                if not base_features or not all_features:
-                    continue
-
-                X_hda = pd.DataFrame([base_features])[models['hda_features']].fillna(0).values
-                X_btts = pd.DataFrame([all_features])[models['btts_features']].fillna(0).values
-                X_over25 = pd.DataFrame([all_features])[models['over25_features']].fillna(0).values
-
-                hda_proba = predict_with_ensemble(models['hda'], X_hda, task='multiclass')[0]
-                btts_proba = predict_with_ensemble(models['btts'], X_btts, task='binary')[0]
-                over25_proba = predict_with_ensemble(models['over25'], X_over25, task='binary')[0]
-
-                tip_type, tip_text, confidence, should_send, secondary_tips = select_best_tip(
-                    hda_proba, btts_proba, over25_proba
-                )
-
-                signal = tip_text if should_send else "📊 No Clear Signal"
-                reasons = [f"Confidence: {confidence:.1%}"] if should_send else ["Below threshold"]
-
-                if should_send:
-                    signal_count += 1
-
-                predictions.append({
-                    'Date': match['Date'],
-                    'home_team': home_team,
-                    'away_team': away_team,
-                    'league': match.get('league_name', 'Unknown'),
-                    'hda_home': hda_proba[0],
-                    'hda_draw': hda_proba[1],
-                    'hda_away': hda_proba[2],
-                    'gg_yes': btts_proba,
-                    'over25': over25_proba,
-                    'confidence': confidence,
-                    'Signal': signal,
-                    'Signal_Reasons': ", ".join(reasons)
-                })
-
-            except Exception as e:
-                st.sidebar.error(f"❌ Prediction failed for {home_team} vs {away_team}: {e}")
-                continue
-
-            progress_bar.progress((idx + 1) / len(upcoming))
-
-        progress_bar.empty()
-        status_text.empty()
-
-        if predictions:
-            st.markdown("### 📊 Prediction Summary")
-            summary_col1, summary_col2, summary_col3 = st.columns(3)
-            with summary_col1:
-                st.metric("Total Analyzed", len(upcoming))
-            with summary_col2:
-                st.metric("Signals Found", signal_count)
-            with summary_col3:
-                signal_rate = signal_count / len(upcoming) if len(upcoming) > 0 else 0
-                st.metric("Signal Rate", f"{signal_rate:.1%}")
-
-            st.markdown("---")
-            predictions_table = create_predictions_table(predictions)
-            if predictions_table is not None:
-                styled_table = style_predictions_table(predictions_table)
-                st.dataframe(styled_table, use_container_width=True)
-
-
 def load_data():
     ensure_league_data_fresh()
     df = pd.read_csv(DATA_FILE)
@@ -572,17 +214,106 @@ def load_data():
         st.stop()
     return df
 
+def load_fixtures_data():
+    """Load fixtures data without prediction logic"""
+    DATA_DIR = PROJECT_ROOT / "data"
+    fixtures_file = DATA_DIR / "fixtures_data.csv"
+    if not fixtures_file.exists():
+        st.warning("No fixtures data found.")
+        return pd.DataFrame()
+    try:
+        fixtures_df = pd.read_csv(fixtures_file)
+        if 'date' in fixtures_df.columns and 'Date' not in fixtures_df.columns:
+            fixtures_df.rename(columns={'date': 'Date'}, inplace=True)
+        fixtures_df['Date'] = pd.to_datetime(fixtures_df['Date'], errors='coerce')
+        return fixtures_df
+    except Exception as e:
+        st.error(f"❌ Failed to load fixtures data: {e}")
+        return pd.DataFrame()
+
+def create_upcoming_fixtures_table(fixtures_df):
+    """Create a simple table of upcoming fixtures"""
+    if fixtures_df.empty:
+        return None
+    today = pd.Timestamp.now().normalize()
+    upcoming = fixtures_df[
+        (fixtures_df['Date'].dt.date >= today.date())
+    ].copy()
+    if upcoming.empty:
+        return None
+    upcoming = upcoming.sort_values('Date').reset_index(drop=True)
+    # Select relevant columns
+    display_df = upcoming[['Date', 'home_team', 'away_team', 'league_name']].copy()
+    display_df['Match'] = display_df['home_team'] + ' vs ' + display_df['away_team']
+    display_df = display_df.rename(columns={
+        'Date': '📅 Date',
+        'Match': '⚽ Match',
+        'league_name': '🏆 League'
+    })
+    display_df['📅 Date'] = display_df['📅 Date'].dt.strftime('%m/%d %H:%M') # Format date
+    return display_df
+
+def create_fixtures_visualizations(fixtures_df):
+    """Create simple visualizations for upcoming fixtures"""
+    if fixtures_df.empty:
+        return
+
+    today = pd.Timestamp.now().normalize()
+    upcoming = fixtures_df[
+        (fixtures_df['Date'].dt.date >= today.date())
+    ].copy()
+    if upcoming.empty:
+        st.info("No upcoming fixtures found.")
+        return
+
+    # Visualization 1: Matches by League
+    league_counts = upcoming['league_name'].value_counts().reset_index()
+    league_counts.columns = ['League', 'Number of Matches']
+    fig_league = px.bar(league_counts, x='League', y='Number of Matches', title="Upcoming Matches by League")
+    fig_league.update_layout(height=300, margin=dict(l=0, r=0, t=40, b=0))
+
+    # Visualization 2: Matches by Date (Distribution)
+    upcoming['Date_only'] = upcoming['Date'].dt.date
+    date_counts = upcoming['Date_only'].value_counts().reset_index()
+    date_counts.columns = ['Date', 'Number of Matches']
+    date_counts = date_counts.sort_values('Date')
+    fig_date = px.line(date_counts, x='Date', y='Number of Matches', title="Upcoming Matches Distribution by Date")
+    fig_date.update_layout(height=300, margin=dict(l=0, r=0, t=40, b=0))
+
+    # Visualization 3: Matches by Country (if possible)
+    # Assuming you have a way to map league to country, otherwise skip this part.
+    # For simplicity, let's assume we can add a 'country' column based on league name.
+    def get_country(league_name):
+        mapping = {
+            'Premier League': 'England',
+            'Championship': 'England',
+            'La Liga': 'Spain',
+            'Serie A': 'Italy',
+            'Bundesliga': 'Germany',
+            'Ligue 1': 'France',
+            'Eredivisie': 'Netherlands',
+            'Primeira Liga': 'Portugal',
+            'Scottish Premiership': 'Scotland'
+        }
+        return mapping.get(league_name, 'Other')
+
+    upcoming['country'] = upcoming['league_name'].apply(get_country)
+    country_counts = upcoming['country'].value_counts().reset_index()
+    country_counts.columns = ['Country', 'Number of Matches']
+    fig_country = px.pie(country_counts, names='Country', values='Number of Matches', title="Upcoming Matches by Country")
+    fig_country.update_layout(height=300, margin=dict(l=0, r=0, t=40, b=0))
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.plotly_chart(fig_league, use_container_width=True)
+    with col2:
+        st.plotly_chart(fig_date, use_container_width=True)
+    st.plotly_chart(fig_country, use_container_width=True)
 
 def main():
-    st.markdown("""
-    <style>
-        .dataframe {
-            font-size: 14px !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
     st.title("Scoresignal Football Analytics Dashboard")
-    
+
+    # Header with GitHub link and description
     header_col1, header_col2 = st.columns([3, 2])
     with header_col1:
         st.markdown(
@@ -602,17 +333,17 @@ def main():
         )
         st.markdown(
             """
-            <p style="font-size:15px; line-height:1.5; color:#444;">
-            Live standings and predictions powered by <b>machine learning</b> for top European leagues.<br>
-            <span style="font-size:13px; color:#666;">
-            *Using the same signal logic as our Telegram bot*
+            <p style="font-size:13px; line-height:1.5; color:#444;">
+            Live standings and fixtures for top European leagues.<br>
+            <span style="font-size:12px; color:#666;">
+            *Predictions temporarily disabled for Railway compatibility*
             </span>
             </p>
             """,
             unsafe_allow_html=True
         )
 
-    tab1, tab2 = st.tabs(["League Standings", "Match Predictions"])
+    tab1, tab2 = st.tabs(["League Standings", "Upcoming Fixtures"])
 
     with tab1:
         df = load_data()
@@ -644,16 +375,16 @@ def main():
             display_cols = ['Pos', 'Team', 'P', 'W', 'D', 'L', 'GF', 'GA', 'GD', 'Pts', 'Form']
             styled_df = style_table(league_df[display_cols])
             num_teams = len(league_df)
-            table_height = min(600, (num_teams + 1) * 35 + 3)
+            # Adjust table height dynamically but keep it compact
+            table_height = min(500, (num_teams + 1) * 30 + 3) # Reduced row height
             st.dataframe(styled_df, use_container_width=True, hide_index=True, height=table_height)
-
             st.markdown("---")
             col_analytics1, col_analytics2 = st.columns(2)
             with col_analytics1:
-                st.markdown("### Goal Difference by Team")
+                st.markdown("### Goal Difference")
                 st.plotly_chart(create_goal_difference_bars(league_df), use_container_width=True)
             with col_analytics2:
-                st.markdown("### Recent Form (Last 5 Games)")
+                st.markdown("### Recent Form")
                 form_df = create_form_analysis(league_df)
                 top_form_teams = form_df.head(3)
                 bottom_form_teams = form_df.tail(3)
@@ -678,11 +409,28 @@ def main():
                         )
 
     with tab2:
-        prediction_tab()
+        st.subheader("Upcoming Fixtures")
+        st.markdown("*Simple view of upcoming matches without AI predictions.*")
+
+        fixtures_df = load_fixtures_data()
+        if fixtures_df.empty:
+            st.info("No fixture data available.")
+        else:
+            # Display Upcoming Fixtures Table
+            upcoming_table = create_upcoming_fixtures_table(fixtures_df)
+            if upcoming_table is not None:
+                st.markdown("### 📅 Upcoming Matches")
+                st.dataframe(upcoming_table, use_container_width=True, height=300)
+            else:
+                st.info("No upcoming matches found.")
+
+            # Display Visualizations
+            st.markdown("---")
+            st.markdown("### 📊 Fixture Insights")
+            create_fixtures_visualizations(fixtures_df)
 
     st.markdown("---")
-    st.caption("Data updated weekly | Source: football-data.co.uk | Predictions with machine learning")
-
+    st.caption("Data updated weekly | Source: football-data.co.uk | Predictions temporarily disabled for Railway")
 
 if __name__ == "__main__":
     main()
