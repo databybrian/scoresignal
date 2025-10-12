@@ -88,14 +88,14 @@ from src.data_pipeline import ensure_historical_data_exists, save_all_current_ta
 # Parse time safely
 # -------------------
 def _parse_time_safely(time_str):
-    """Parse time string safely, return None if invalid"""
+    """Parse time string safely, return pd.NaT if invalid"""
     try:
         if pd.isna(time_str) or time_str in ['', 'TBD', None]:
-            return None
+            return pd.NaT
         parsed = pd.to_datetime(time_str, format='%H:%M', errors='coerce')
-        return parsed if pd.notna(parsed) else None
+        return parsed if pd.notna(parsed) else pd.NaT
     except:
-        return None
+        return pd.NaT
 
 # -------------------
 # Cross-Platform Execution Lock
@@ -374,8 +374,8 @@ def select_best_tip(hda_proba, btts_proba, over25_proba):
     under_prob = 1 - over25_proba
     
     # Calculate confidence scores (how far from 50% baseline)
-    hda_home_confidence = max(0, home_prob - 0.52)
-    hda_away_confidence = max(0, away_prob - 0.52)
+    hda_home_confidence = max(0, home_prob - 0.55)
+    hda_away_confidence = max(0, away_prob - 0.55)
     hda_draw_confidence = max(0, draw_prob - 0.37)
     
     btts_yes_confidence = max(0, btts_yes - 0.53)
@@ -613,6 +613,7 @@ def _get_weekend_morning_fixtures(fixtures):
     fixtures = fixtures.copy()
     fixtures['parsed_time'] = fixtures['time'].apply(_parse_time_safely)
     
+    # Include: matches with time < 17:00 OR matches with no time data
     target_fixtures = fixtures[
         ((fixtures['parsed_time'].notna()) & 
          (fixtures['parsed_time'].dt.hour < 17)) |
@@ -626,6 +627,7 @@ def _get_weekend_afternoon_fixtures(fixtures):
     fixtures = fixtures.copy()
     fixtures['parsed_time'] = fixtures['time'].apply(_parse_time_safely)
     
+    # Include: ONLY matches with time >= 17:00
     target_fixtures = fixtures[
         (fixtures['parsed_time'].notna()) & 
         (fixtures['parsed_time'].dt.hour >= 17)
